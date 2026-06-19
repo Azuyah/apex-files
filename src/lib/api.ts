@@ -61,7 +61,10 @@ export type IntegrationStatus = {
 
 type AuthResponse = { token: string; user: User };
 
-const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/+$/, '');
+const DEFAULT_API_BASE_URL = import.meta.env.DEV
+  ? 'http://127.0.0.1:8787/api'
+  : 'https://apex-files-backend-production.up.railway.app/api';
+const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/+$/, '');
 const TOKEN_KEY = 'apex-files-token';
 
 export function readToken() {

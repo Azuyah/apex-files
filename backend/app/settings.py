@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     revtech_integration_mode: str = "revtech"
     revtech_api_base_url: str = "https://files.revtechfiles.com/api/proxy"
     revtech_service_token: str = ""
-    revtech_timeout_seconds: int = 90
+    revtech_timeout_seconds: int = 600
 
     model_config = SettingsConfigDict(
         env_file=("backend/.env", ".env"),

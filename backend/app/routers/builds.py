@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import get_current_user
-from ..models import BuildJob, Project, Subscription, User, utcnow
+from ..models import BuildJob, Project, Subscription, User, as_utc, utcnow
 from ..schemas import BuildJobListOut, BuildJobOut
 from ..services.build_pipeline import normalize_filename_part, process_build_job, sha256_file
 from ..settings import get_settings
@@ -21,7 +21,23 @@ from ..settings import get_settings
 router = APIRouter(prefix="/builds", tags=["builds"])
 
 ALLOWED_BASE_TUNES = {"STAGE1", "STAGE2", "CUSTOM", "ECO", "TCU", ""}
-ALLOWED_ADDONS = {"EGR_OFF", "DPF_OFF", "DECAT", "SWIRL_FLAPS_OFF", "ADBLUE_OFF", "VMAX"}
+ALLOWED_ADDONS = {
+    "EGR_OFF",
+    "DPF_OFF",
+    "GPF_OPF_OFF",
+    "DECAT",
+    "SWIRL_FLAPS_OFF",
+    "ADBLUE_OFF",
+    "DTC_REMOVE",
+    "MAF_OFF",
+    "LAMBDA_OFF",
+    "NOX_OFF",
+    "START_STOP_OFF",
+    "TORQUE_MONITORING_OFF",
+    "HOT_START_FIX",
+    "POPS_BANGS",
+    "VMAX",
+}
 
 
 def parse_addon_keys(value: str | None) -> list[str]:
@@ -49,7 +65,7 @@ def ensure_subscription_available(subscription: Subscription | None) -> None:
     if not subscription:
         raise HTTPException(status_code=402, detail="No active subscription is attached to this account")
     now = utcnow()
-    if subscription.period_ends_at <= now:
+    if as_utc(subscription.period_ends_at) <= now:
         subscription.period_started_at = now
         subscription.period_ends_at = now + timedelta(days=30)
         subscription.files_used_this_period = 0

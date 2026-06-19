@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,8 @@ from ..database import SessionLocal
 from ..models import BuildJob, Subscription
 from ..settings import get_settings
 from .revtech_client import RevtechClient, RevtechClientError
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_filename_part(value: str) -> str:
@@ -46,11 +49,59 @@ BASE_LABELS = {
 ADDON_LABELS = {
     "EGR_OFF": ("egr",),
     "DPF_OFF": ("dpf", "fap"),
+    "GPF_OPF_OFF": ("gpf", "opf", "ppf"),
     "DECAT": ("decat", "cat off"),
     "SWIRL_FLAPS_OFF": ("swirl",),
     "ADBLUE_OFF": ("adblue", "scr", "urea"),
+    "DTC_REMOVE": ("dtc", "fault code", "fault codes"),
+    "MAF_OFF": ("maf", "air mass"),
+    "LAMBDA_OFF": ("lambda", "o2 sensor", "oxygen sensor"),
+    "NOX_OFF": ("nox",),
+    "START_STOP_OFF": ("start stop", "startstop", "start/stop"),
+    "TORQUE_MONITORING_OFF": ("torque monitoring", "torque monitor"),
+    "HOT_START_FIX": ("hot start",),
+    "POPS_BANGS": ("pops", "bang", "crackle", "burble"),
     "VMAX": ("v max", "vmax", "speed limiter", "limiter"),
 }
+
+ADDON_NAMES = {
+    "EGR_OFF": "EGR off",
+    "DPF_OFF": "DPF off",
+    "GPF_OPF_OFF": "GPF / OPF off",
+    "DECAT": "Decat",
+    "SWIRL_FLAPS_OFF": "Swirl flaps off",
+    "ADBLUE_OFF": "Adblue off",
+    "DTC_REMOVE": "DTC removal",
+    "MAF_OFF": "MAF off",
+    "LAMBDA_OFF": "Lambda off",
+    "NOX_OFF": "NOx off",
+    "START_STOP_OFF": "Start / stop off",
+    "TORQUE_MONITORING_OFF": "Torque monitoring off",
+    "HOT_START_FIX": "Hot start fix",
+    "POPS_BANGS": "Pops & Bangs",
+    "VMAX": "V-max",
+}
+
+PATCH_ADAPTATION_ADDONS = {"EGR_OFF", "DPF_OFF", "DECAT", "SWIRL_FLAPS_OFF", "ADBLUE_OFF", "VMAX"}
+
+
+def display_addons(addon_keys: list[str]) -> str:
+    return ", ".join(ADDON_NAMES.get(key, key) for key in addon_keys)
+
+
+def customer_safe_error(exc: Exception) -> str:
+    message = str(exc).strip()
+    if isinstance(exc, RevtechClientError):
+        if "needs an exact database version" in message:
+            return message
+        if "not configured" in message.lower():
+            return "The file build service is not connected yet. Please contact support."
+        if "did not return a safe patch adaptation output" in message:
+            return "No safe automatic build was found for this file. Please try another file or contact support."
+        return "No safe automatic build was found for this file. Please try another file or contact support."
+    if "timeout" in message.lower():
+        return "The file build service took too long to respond. Please try again."
+    return "Could not finish this file build. Please try again or contact support."
 
 
 def version_matches_tokens(name: str | None, tokens: tuple[str, ...]) -> bool:
@@ -227,6 +278,12 @@ async def process_build_job(job_id: str) -> None:
             result_filename = output_filename_from_headers(headers, "apex-merged.bin")
             strategy = "version_merge"
         else:
+            unsupported_patch_keys = [key for key in addon_keys if key not in PATCH_ADAPTATION_ADDONS]
+            if unsupported_patch_keys:
+                labels = display_addons(unsupported_patch_keys)
+                raise RevtechClientError(
+                    f"{labels} needs an exact database version. No compatible version was found for this file."
+                )
             update_job(db, job_id, progress=68, current_stage="Validating patch adaptation")
             patch_payload, output_bytes, result_filename = await client.run_patch_adaptation(
                 file_path,
@@ -269,6 +326,15 @@ async def process_build_job(job_id: str) -> None:
             db.add(subscription)
             db.commit()
     except Exception as exc:
-        update_job(db, job_id, status="failed", progress=100, current_stage="Failed", error_message=str(exc))
+        logger.exception("Apex build job %s failed", job_id)
+        update_job(
+            db,
+            job_id,
+            status="failed",
+            progress=100,
+            current_stage="Failed",
+            error_message=customer_safe_error(exc),
+            revtech_payload={"error_type": exc.__class__.__name__},
+        )
     finally:
         db.close()

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+import logging
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from .database import SessionLocal, init_db
 from .routers import auth, builds, integrations, projects, subscription
@@ -9,6 +12,7 @@ from .services.bootstrap import ensure_temp_admin_account
 from .settings import get_settings
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Apex Files API", version="0.1.0")
 
@@ -41,6 +45,15 @@ def health() -> dict[str, str]:
 @app.get("/")
 def root_health() -> dict[str, str]:
     return health()
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception("Unhandled API error on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Something went wrong while processing the request. Please try again."},
+    )
 
 
 app.include_router(auth.router, prefix="/api")

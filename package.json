@@ -12,8 +12,8 @@
     "dev:desktop": "npm-run-all -p dev electron:dev",
     "electron:dev": "wait-on http://localhost:5173 && cmd /C \"set ELECTRON_RUN_AS_NODE=&& set VITE_DEV_SERVER_URL=http://localhost:5173&& electron .\"",
     "build": "tsc -b && vite build",
-    "build:desktop:win": "npm run build && electron-builder --win nsis --config.win.signAndEditExecutable=false",
-    "build:desktop:dir": "npm run build && electron-builder --win dir --config.win.signAndEditExecutable=false",
+    "build:desktop:win": "npm run build && electron-builder --win nsis --config.win.signExecutable=false",
+    "build:desktop:dir": "npm run build && electron-builder --win dir --config.win.signExecutable=false",
     "preview": "vite preview",
     "lint": "eslint ."
   },
@@ -56,6 +56,7 @@
       "!**/*.map"
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         "nsis"
       ]
@@ -69,6 +70,8 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Apex Files",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
       "artifactName": "Apex Files Setup ${version}.${ext}"
     },
     "extraMetadata": {

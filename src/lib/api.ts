@@ -102,9 +102,19 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     let message = response.statusText;
     if (isJson) {
       const data = await response.json().catch(() => null);
-      message = String(data?.detail || data?.message || message);
+      if (Array.isArray(data?.detail)) {
+        message = data.detail
+          .map((item: { msg?: string } | string) => (typeof item === 'string' ? item : item?.msg))
+          .filter(Boolean)
+          .join(' ');
+      } else {
+        message = String(data?.detail || data?.message || message);
+      }
     } else {
       message = (await response.text().catch(() => '')) || message;
+    }
+    if (response.status >= 500 && /internal server error/i.test(message)) {
+      message = 'Something went wrong while processing the request. Please try again.';
     }
     throw new Error(message);
   }

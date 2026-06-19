@@ -5,7 +5,7 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import Subscription, User, utcnow
+from ..models import Subscription, User, as_utc, utcnow
 from ..security import hash_password
 from ..settings import get_settings
 
@@ -47,7 +47,8 @@ def ensure_temp_admin_account(db: Session) -> None:
         subscription.plan_name = "Temporary Admin"
         subscription.monthly_file_limit = max(subscription.monthly_file_limit, 9999)
         subscription.status = "active"
-        if subscription.period_ends_at <= utcnow():
-            subscription.period_ends_at = utcnow() + timedelta(days=365)
+        now = utcnow()
+        if as_utc(subscription.period_ends_at) <= now:
+            subscription.period_ends_at = now + timedelta(days=365)
 
     db.commit()

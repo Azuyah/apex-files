@@ -57,18 +57,34 @@ const BASE_OPTIONS = [
 const ADDON_OPTIONS = [
   { key: 'EGR_OFF', label: 'EGR off' },
   { key: 'DPF_OFF', label: 'DPF off' },
+  { key: 'GPF_OPF_OFF', label: 'GPF / OPF off' },
   { key: 'DECAT', label: 'Decat' },
   { key: 'SWIRL_FLAPS_OFF', label: 'Swirl flaps off' },
   { key: 'ADBLUE_OFF', label: 'Adblue off' },
+  { key: 'DTC_REMOVE', label: 'DTC removal' },
+  { key: 'MAF_OFF', label: 'MAF off' },
+  { key: 'LAMBDA_OFF', label: 'Lambda off' },
+  { key: 'NOX_OFF', label: 'NOx off' },
+  { key: 'START_STOP_OFF', label: 'Start / stop off' },
+  { key: 'TORQUE_MONITORING_OFF', label: 'Torque monitoring off' },
+  { key: 'HOT_START_FIX', label: 'Hot start fix' },
+  { key: 'POPS_BANGS', label: 'Pops & Bangs' },
   { key: 'VMAX', label: 'V-max' },
 ];
+
+const BASE_OPTION_LABELS = Object.fromEntries(BASE_OPTIONS.map((option) => [option.key, option.label]));
+const ADDON_OPTION_LABELS = Object.fromEntries(ADDON_OPTIONS.map((option) => [option.key, option.label]));
+
+function userFacingError(reason: unknown, fallback: string) {
+  const message = reason instanceof Error ? reason.message : fallback;
+  if (!message || /internal server error/i.test(message)) return fallback;
+  return message;
+}
 
 function ApexLogo({ compact = false }: { compact?: boolean }) {
   return (
     <div className={clsx('brand-lockup', compact && 'brand-lockup-compact')}>
-      <div className="brand-mark" aria-hidden="true">
-        <span className="brand-peak" />
-      </div>
+      <img className="brand-image" src="/apex-logo.png" alt="" aria-hidden="true" />
       {!compact ? (
         <div className="brand-copy">
           <strong>Apex Files</strong>
@@ -136,7 +152,7 @@ function LoginParticles() {
           index % 9 === 0
             ? 'rgba(34, 211, 238, 0.32)'
             : index % 6 === 0
-              ? 'rgba(239, 85, 72, 0.30)'
+              ? 'rgba(249, 115, 22, 0.30)'
               : 'rgba(226, 232, 240, 0.24)',
       })),
     [],
@@ -297,10 +313,6 @@ function Sidebar({
             <span>{collapsed ? 'Expand menu' : 'Collapse menu'}</span>
           </button>
           <div className="sidebar-footer">
-            <button type="button" onClick={() => onChange('account')} title={collapsed ? 'Settings' : undefined}>
-              <Settings size={16} />
-              <span>Settings</span>
-            </button>
             <button type="button" className="logout-button" onClick={onLogout} title={collapsed ? 'Log out' : undefined}>
               <LogOut size={16} />
               <span>Log out</span>
@@ -362,14 +374,16 @@ function BuilderPage({
       });
       onCreated(job);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not start build');
+      setError(userFacingError(reason, 'Could not start this file build. Please try again.'));
     } finally {
       setLoading(false);
     }
   }
 
   const selectedBase = BASE_OPTIONS.find((option) => option.key === baseTune)?.label || 'Stage 1';
-  const selectedAddons = ADDON_OPTIONS.filter((option) => addons.includes(option.key));
+  const currentBaseLabel = BASE_OPTION_LABELS[currentJob?.base_tune || baseTune] || selectedBase;
+  const currentAddonKeys = currentJob?.requested_options?.addon_keys || addons;
+  const currentAddonLabels = currentAddonKeys.map((key) => ADDON_OPTION_LABELS[key] || key).filter(Boolean);
 
   return (
     <div className="builder-layout">
@@ -464,23 +478,26 @@ function BuilderPage({
         </div>
         {currentJob ? (
           <div className="job-card">
-            <div className="progress-ring" style={{ '--progress': `${currentJob.progress}%` } as CSSProperties}>
-              <span>{currentJob.progress}%</span>
-            </div>
             <div className="job-main">
-              <h3>{currentJob.source_filename}</h3>
-              <p>{currentJob.current_stage}</p>
-              <div className="progress-bar">
+              <div className="job-title-row">
+                <h3>{currentJob.source_filename}</h3>
+                <strong>{currentJob.progress}%</strong>
+              </div>
+              <div className="progress-bar delivery-progress">
                 <span style={{ width: `${currentJob.progress}%` }} />
+              </div>
+              <div className="delivery-meta">
+                <span>{currentJob.current_stage}</span>
+                <span>{currentJob.status === 'ready' ? 'Download ready' : 'Building'}</span>
               </div>
               <dl className="build-summary">
                 <div>
                   <dt>Tune</dt>
-                  <dd>{selectedBase}</dd>
+                  <dd>{currentBaseLabel}</dd>
                 </div>
                 <div>
                   <dt>Options</dt>
-                  <dd>{selectedAddons.length ? selectedAddons.map((option) => option.label).join(', ') : 'None'}</dd>
+                  <dd>{currentAddonLabels.length ? currentAddonLabels.join(', ') : 'None'}</dd>
                 </div>
               </dl>
               {currentJob.error_message ? <div className="form-error">{currentJob.error_message}</div> : null}
@@ -540,6 +557,7 @@ function ProjectsPage({ projects, builds }: { projects: Project[]; builds: Build
 }
 
 function AccountPage({ subscription, user }: { subscription: Subscription | null; user: User }) {
+  const [tab, setTab] = useState<'profile' | 'package' | 'settings'>('profile');
   const used = subscription?.files_used_this_period || 0;
   const limit = subscription?.monthly_file_limit || 1;
   const percent = Math.min(100, Math.round((used / limit) * 100));
@@ -553,28 +571,84 @@ function AccountPage({ subscription, user }: { subscription: Subscription | null
         </div>
         {subscription ? <StatusBadge status={subscription.status} /> : null}
       </div>
+      <div className="account-tabs" role="tablist" aria-label="Account sections">
+        {[
+          { key: 'profile', label: 'Profile', icon: <ShieldCheck size={14} /> },
+          { key: 'package', label: 'Package', icon: <Gauge size={14} /> },
+          { key: 'settings', label: 'Settings', icon: <Settings size={14} /> },
+        ].map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            className={clsx(tab === item.key && 'selected')}
+            onClick={() => setTab(item.key as typeof tab)}
+          >
+            {item.icon}
+            {item.label}
+          </button>
+        ))}
+      </div>
       <div className="account-layout">
-        <div className="profile-block">
-          <span>Signed in as</span>
-          <strong>{user.display_name || user.email}</strong>
-          <p>{user.company_name || user.email}</p>
-        </div>
-        <div className="plan-block">
-          <span>Current package</span>
-          <strong>{subscription?.plan_name || 'Loading'}</strong>
-          <p>
-            {used} of {limit} files used this period
-          </p>
-        </div>
-        <div className="usage-block">
-          <div className="progress-bar large">
-            <span style={{ width: `${percent}%` }} />
+        {tab === 'profile' ? (
+          <>
+            <div className="profile-block">
+              <span>Signed in as</span>
+              <strong>{user.display_name || user.email}</strong>
+              <p>{user.company_name || user.email}</p>
+            </div>
+            <div className="profile-block">
+              <span>Email</span>
+              <strong>{user.email}</strong>
+              <p>{user.role === 'admin' ? 'Administrator account' : 'Tuner account'}</p>
+            </div>
+          </>
+        ) : null}
+        {tab === 'package' ? (
+          <>
+            <div className="plan-block">
+              <span>Current package</span>
+              <strong>{subscription?.plan_name || 'Loading'}</strong>
+              <p>
+                {used} of {limit} files used this period
+              </p>
+            </div>
+            <div className="usage-block account-wide">
+              <div className="progress-bar large">
+                <span style={{ width: `${percent}%` }} />
+              </div>
+              <div className="usage-meta">
+                <span>{percent}% used</span>
+                <span>{subscription ? `Renews ${new Date(subscription.period_ends_at).toLocaleDateString()}` : 'Loading renewal'}</span>
+              </div>
+            </div>
+          </>
+        ) : null}
+        {tab === 'settings' ? (
+          <div className="settings-grid">
+            <label>
+              <span>Default tune</span>
+              <select defaultValue="STAGE1">
+                {BASE_OPTIONS.map((option) => (
+                  <option key={option.key} value={option.key}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Delivery name</span>
+              <input defaultValue="Apex completed file" />
+            </label>
+            <label className="toggle-row setting-toggle">
+              <input type="checkbox" defaultChecked />
+              <span>Save projects automatically</span>
+            </label>
+            <label className="toggle-row setting-toggle">
+              <input type="checkbox" defaultChecked />
+              <span>Notify when builds finish</span>
+            </label>
           </div>
-          <div className="usage-meta">
-            <span>{percent}% used</span>
-            <span>{subscription ? `Renews ${new Date(subscription.period_ends_at).toLocaleDateString()}` : 'Loading renewal'}</span>
-          </div>
-        </div>
+        ) : null}
       </div>
     </section>
   );

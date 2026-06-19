@@ -1,24 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, FormEvent } from 'react';
+import type { CSSProperties, FormEvent, ReactNode } from 'react';
 import clsx from 'clsx';
 import {
   Activity,
+  Bell,
   CheckCircle2,
-  ChevronRight,
   CircleAlert,
-  Database,
   Download,
   FileCog,
   FolderClock,
   Gauge,
   Loader2,
   LockKeyhole,
+  LogIn,
   LogOut,
+  Maximize2,
   Minus,
-  MonitorCog,
-  PanelsTopLeft,
+  PanelLeftClose,
+  PanelLeftOpen,
   Play,
   Settings,
+  ShieldCheck,
   Square,
   Upload,
   UserPlus,
@@ -26,7 +28,6 @@ import {
 } from 'lucide-react';
 import {
   BuildJob,
-  IntegrationStatus,
   Project,
   Subscription,
   User,
@@ -34,7 +35,6 @@ import {
   createBuild,
   downloadBuild,
   getBuild,
-  getIntegrationStatus,
   getMe,
   getSubscription,
   listBuilds,
@@ -44,7 +44,7 @@ import {
   register,
 } from './lib/api';
 
-type PageKey = 'builder' | 'projects' | 'subscription' | 'services';
+type PageKey = 'builder' | 'projects' | 'account';
 
 const BASE_OPTIONS = [
   { key: 'STAGE1', label: 'Stage 1' },
@@ -65,48 +65,103 @@ const ADDON_OPTIONS = [
 
 function ApexLogo({ compact = false }: { compact?: boolean }) {
   return (
-    <div className={clsx('apex-logo', compact && 'apex-logo-compact')}>
-      <div className="apex-mark">
-        <span />
+    <div className={clsx('brand-lockup', compact && 'brand-lockup-compact')}>
+      <div className="brand-mark" aria-hidden="true">
+        <span className="brand-peak" />
       </div>
       {!compact ? (
-        <div className="min-w-0">
-          <div className="apex-word">Apex Files</div>
-          <div className="apex-powered">Powered by Revtech</div>
+        <div className="brand-copy">
+          <strong>Apex Files</strong>
+          <span>Powered by Revtech</span>
         </div>
       ) : null}
     </div>
   );
 }
 
-function WindowControls() {
+function WindowActions() {
+  const [maximized, setMaximized] = useState(false);
+
+  async function toggleMaximize() {
+    const result = await window.apex?.maximizeToggle();
+    if (typeof result === 'boolean') setMaximized(result);
+  }
+
   return (
-    <div className="window-controls app-no-drag">
-      <button aria-label="Minimize" onClick={() => void window.apex?.minimize()}>
-        <Minus size={14} />
+    <div className="window-actions app-no-drag">
+      <button type="button" aria-label="Notifications" title="Notifications">
+        <Bell size={15} />
       </button>
-      <button aria-label="Maximize" onClick={() => void window.apex?.maximizeToggle()}>
-        <Square size={12} />
+      <button type="button" aria-label="Minimize" title="Minimize" onClick={() => void window.apex?.minimize()}>
+        <Minus size={15} />
       </button>
-      <button aria-label="Close" className="close" onClick={() => void window.apex?.close()}>
+      <button type="button" aria-label={maximized ? 'Restore' : 'Maximize'} title={maximized ? 'Restore' : 'Maximize'} onClick={() => void toggleMaximize()}>
+        {maximized ? <Square size={13} /> : <Maximize2 size={14} />}
+      </button>
+      <button type="button" className="danger" aria-label="Close" title="Close" onClick={() => void window.apex?.close()}>
         <X size={15} />
       </button>
     </div>
   );
 }
 
-function Titlebar({ user }: { user: User | null }) {
+function TopChrome({ user }: { user: User | null }) {
   return (
-    <header className="titlebar app-drag">
-      <div className="titlebar-left">
-        <PanelsTopLeft size={16} />
-        <span>Apex Files</span>
+    <>
+      <div className="app-drag drag-strip" />
+      <div className="top-chrome">
+        {user ? (
+          <div className="top-session">
+            <span>{user.company_name || user.display_name || user.email}</span>
+          </div>
+        ) : null}
+        <WindowActions />
       </div>
-      <div className="titlebar-right app-no-drag">
-        {user ? <span className="session-pill">{user.company_name || user.email}</span> : null}
-        <WindowControls />
-      </div>
-    </header>
+    </>
+  );
+}
+
+function LoginParticles() {
+  const particles = useMemo(
+    () =>
+      Array.from({ length: 72 }, (_, index) => ({
+        id: index,
+        left: (index * 7.8) % 100,
+        top: (index * 11.4) % 100,
+        size: 1.6 + (index % 4) * 0.7,
+        duration: 3.4 + (index % 5) * 0.45,
+        delay: (index % 9) * 0.38,
+        opacity: 0.16 + (index % 4) * 0.04,
+        tone:
+          index % 9 === 0
+            ? 'rgba(34, 211, 238, 0.32)'
+            : index % 6 === 0
+              ? 'rgba(239, 85, 72, 0.30)'
+              : 'rgba(226, 232, 240, 0.24)',
+      })),
+    [],
+  );
+
+  return (
+    <div className="login-particles" aria-hidden="true">
+      {particles.map((particle) => (
+        <span
+          key={particle.id}
+          style={
+            {
+              left: `${particle.left}%`,
+              top: `${particle.top}%`,
+              width: `${particle.size}px`,
+              height: `${particle.size}px`,
+              color: particle.tone,
+              animationDuration: `${particle.duration}s`,
+              animationDelay: `-${particle.delay}s`,
+              '--particle-opacity': `${particle.opacity}`,
+            } as CSSProperties
+          }
+        />
+      ))}
+    </div>
   );
 }
 
@@ -138,86 +193,121 @@ function LoginScreen({ onAuthed }: { onAuthed: (user: User) => void }) {
 
   return (
     <main className="login-screen">
-      <div className="login-backplate" />
-      <form className="login-panel" onSubmit={onSubmit}>
-        <ApexLogo />
-        <div className="login-copy">
-          <h1>{mode === 'login' ? 'Sign in' : 'Create account'}</h1>
-          <p>{mode === 'login' ? 'Access your tuner workspace.' : 'Start a new Apex Files workspace.'}</p>
+      <LoginParticles />
+      <section className="login-stack">
+        <div className="login-brand">
+          <ApexLogo />
+          <span>Customer access</span>
         </div>
-        <label>
-          <span>Account</span>
-          <input value={email} onChange={(event) => setEmail(event.target.value)} type="text" autoComplete="username" />
-        </label>
-        {mode === 'register' ? (
-          <>
-            <label>
-              <span>Name</span>
-              <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
-            </label>
-            <label>
-              <span>Company</span>
-              <input value={companyName} onChange={(event) => setCompanyName(event.target.value)} />
-            </label>
-          </>
-        ) : null}
-        <label>
-          <span>Password</span>
-          <input
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            type="password"
-            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-          />
-        </label>
-        {error ? <div className="form-error">{error}</div> : null}
-        <button className="primary-button" disabled={loading}>
-          {loading ? <Loader2 className="spin" size={16} /> : mode === 'login' ? <LockKeyhole size={16} /> : <UserPlus size={16} />}
-          {mode === 'login' ? 'Sign in' : 'Create account'}
-        </button>
-        <button type="button" className="ghost-button" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>
-          {mode === 'login' ? 'Create account' : 'Back to sign in'}
-        </button>
-      </form>
+        <form className="login-card" onSubmit={onSubmit}>
+          <div className="login-heading">
+            <div className="login-icon">
+              <LockKeyhole size={20} />
+            </div>
+            <div>
+              <span>{mode === 'login' ? 'Customer gate' : 'New workspace'}</span>
+              <h1>{mode === 'login' ? 'Log in with your account' : 'Create your account'}</h1>
+              <p>{mode === 'login' ? 'Access file builds, projects and your package.' : 'Create an Apex Files tuner workspace.'}</p>
+            </div>
+          </div>
+
+          <label>
+            <span>Account</span>
+            <input value={email} onChange={(event) => setEmail(event.target.value)} type="text" autoComplete="username" />
+          </label>
+          {mode === 'register' ? (
+            <div className="login-two-col">
+              <label>
+                <span>Name</span>
+                <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+              </label>
+              <label>
+                <span>Company</span>
+                <input value={companyName} onChange={(event) => setCompanyName(event.target.value)} />
+              </label>
+            </div>
+          ) : null}
+          <label>
+            <span>Password</span>
+            <input
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              type="password"
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+            />
+          </label>
+
+          {error ? <div className="form-error">{error}</div> : null}
+
+          <button className="primary-action" disabled={loading || !email || !password}>
+            {loading ? <Loader2 className="spin" size={16} /> : mode === 'login' ? <LogIn size={16} /> : <UserPlus size={16} />}
+            {mode === 'login' ? 'Log in' : 'Create account'}
+          </button>
+          <button type="button" className="quiet-action" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>
+            {mode === 'login' ? 'Create an account' : 'Back to login'}
+          </button>
+        </form>
+      </section>
     </main>
   );
 }
 
 function Sidebar({
   active,
+  collapsed,
   onChange,
   onLogout,
+  onToggleCollapsed,
 }: {
   active: PageKey;
+  collapsed: boolean;
   onChange: (page: PageKey) => void;
   onLogout: () => void;
+  onToggleCollapsed: () => void;
 }) {
-  const items = [
-    { key: 'builder' as const, label: 'File builder', icon: FileCog },
-    { key: 'projects' as const, label: 'Projects', icon: FolderClock },
-    { key: 'subscription' as const, label: 'Subscription', icon: Gauge },
-    { key: 'services' as const, label: 'Services', icon: MonitorCog },
+  const items: { key: PageKey; label: string; icon: ReactNode }[] = [
+    { key: 'builder', label: 'File builder', icon: <FileCog size={17} /> },
+    { key: 'projects', label: 'Projects', icon: <FolderClock size={17} /> },
+    { key: 'account', label: 'Account', icon: <ShieldCheck size={17} /> },
   ];
 
   return (
-    <aside className="sidebar">
-      <ApexLogo />
-      <nav>
-        {items.map((item) => {
-          const Icon = item.icon;
-          return (
-            <button key={item.key} className={clsx(active === item.key && 'active')} onClick={() => onChange(item.key)}>
-              <Icon size={18} />
+    <aside className={clsx('sidebar', collapsed && 'collapsed')}>
+      <div className="sidebar-inner">
+        <div className="sidebar-brand">
+          <ApexLogo compact={collapsed} />
+        </div>
+        <nav>
+          {items.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={clsx(active === item.key && 'active')}
+              title={collapsed ? item.label : undefined}
+              onClick={() => onChange(item.key)}
+            >
+              {item.icon}
               <span>{item.label}</span>
-              <ChevronRight className="nav-chevron" size={14} />
             </button>
-          );
-        })}
-      </nav>
-      <button className="sidebar-logout" onClick={onLogout}>
-        <LogOut size={16} />
-        Sign out
-      </button>
+          ))}
+        </nav>
+        <div className="sidebar-bottom">
+          <button type="button" className="sidebar-collapse" onClick={onToggleCollapsed} title={collapsed ? 'Expand menu' : undefined}>
+            {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+            <span>{collapsed ? 'Expand menu' : 'Collapse menu'}</span>
+          </button>
+          <div className="sidebar-footer">
+            <button type="button" onClick={() => onChange('account')} title={collapsed ? 'Settings' : undefined}>
+              <Settings size={16} />
+              <span>Settings</span>
+            </button>
+            <button type="button" className="logout-button" onClick={onLogout} title={collapsed ? 'Log out' : undefined}>
+              <LogOut size={16} />
+              <span>Log out</span>
+            </button>
+          </div>
+        </div>
+      </div>
     </aside>
   );
 }
@@ -225,10 +315,11 @@ function Sidebar({
 function StatusBadge({ status }: { status: string }) {
   const ready = status === 'ready';
   const failed = status === 'failed';
+  const label = ready ? 'Ready' : failed ? 'Needs attention' : status.replace(/_/g, ' ');
   return (
     <span className={clsx('status-badge', ready && 'ready', failed && 'failed')}>
       {ready ? <CheckCircle2 size={13} /> : failed ? <CircleAlert size={13} /> : <Activity size={13} />}
-      {status}
+      {label}
     </span>
   );
 }
@@ -277,15 +368,18 @@ function BuilderPage({
     }
   }
 
+  const selectedBase = BASE_OPTIONS.find((option) => option.key === baseTune)?.label || 'Stage 1';
+  const selectedAddons = ADDON_OPTIONS.filter((option) => addons.includes(option.key));
+
   return (
-    <div className="page-grid builder-grid">
-      <section className="panel builder-panel">
+    <div className="builder-layout">
+      <section className="workspace-panel builder-panel">
         <div className="section-heading">
           <div>
-            <span>Build</span>
-            <h2>Requested customer file</h2>
+            <span>Upload file</span>
+            <h2>Build a customer file</h2>
           </div>
-          <button className="icon-button" onClick={() => fileInput.current?.click()} title="Select file">
+          <button className="icon-action" type="button" onClick={() => fileInput.current?.click()} title="Select file">
             <Upload size={18} />
           </button>
         </div>
@@ -295,10 +389,10 @@ function BuilderPage({
           className="hidden-input"
           onChange={(event) => setFile(event.target.files?.[0] || null)}
         />
-        <button className={clsx('drop-target', file && 'has-file')} onClick={() => fileInput.current?.click()}>
+        <button className={clsx('drop-target', file && 'has-file')} type="button" onClick={() => fileInput.current?.click()}>
           <Upload size={26} />
-          <strong>{file ? file.name : 'Select calibration file'}</strong>
-          <span>{file ? `${Math.round(file.size / 1024).toLocaleString()} KB` : 'BIN, ORI, MOD or tool export'}</span>
+          <strong>{file ? file.name : 'Select file'}</strong>
+          <span>{file ? `${Math.round(file.size / 1024).toLocaleString()} KB selected` : 'BIN, ORI, MOD or tool export'}</span>
         </button>
 
         <div className="field-grid">
@@ -313,11 +407,12 @@ function BuilderPage({
         </div>
 
         <div className="option-block">
-          <span className="block-label">Base tune</span>
+          <span className="block-label">Requested tune</span>
           <div className="segmented">
             {BASE_OPTIONS.map((option) => (
               <button
                 key={option.key}
+                type="button"
                 className={clsx(baseTune === option.key && 'selected')}
                 onClick={() => setBaseTune(option.key)}
               >
@@ -328,11 +423,16 @@ function BuilderPage({
         </div>
 
         <div className="option-block">
-          <span className="block-label">Add-ons</span>
+          <span className="block-label">Options</span>
           <div className="addon-grid">
             {ADDON_OPTIONS.map((option) => (
-              <button key={option.key} className={clsx(addons.includes(option.key) && 'selected')} onClick={() => toggleAddon(option.key)}>
-                <span className="check-dot">{addons.includes(option.key) ? <CheckCircle2 size={14} /> : null}</span>
+              <button
+                key={option.key}
+                type="button"
+                className={clsx(addons.includes(option.key) && 'selected')}
+                onClick={() => toggleAddon(option.key)}
+              >
+                <span>{addons.includes(option.key) ? <CheckCircle2 size={14} /> : null}</span>
                 {option.label}
               </button>
             ))}
@@ -342,23 +442,23 @@ function BuilderPage({
         <div className="project-row">
           <label className="toggle-row">
             <input type="checkbox" checked={saveProject} onChange={(event) => setSaveProject(event.target.checked)} />
-            <span>Save as project</span>
+            <span>Save project</span>
           </label>
           <input value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="Project name" />
         </div>
 
         {error ? <div className="form-error">{error}</div> : null}
-        <button className="primary-button build-button" disabled={!file || loading} onClick={() => void submit()}>
+        <button className="primary-action build-action" disabled={!file || loading} type="button" onClick={() => void submit()}>
           {loading ? <Loader2 className="spin" size={17} /> : <Play size={17} />}
-          Match and build
+          Start file build
         </button>
       </section>
 
-      <section className="panel result-panel">
+      <section className="workspace-panel result-panel">
         <div className="section-heading">
           <div>
             <span>Delivery</span>
-            <h2>Build status</h2>
+            <h2>Current build</h2>
           </div>
           {currentJob ? <StatusBadge status={currentJob.status} /> : null}
         </div>
@@ -373,13 +473,19 @@ function BuilderPage({
               <div className="progress-bar">
                 <span style={{ width: `${currentJob.progress}%` }} />
               </div>
-              <div className="job-meta">
-                <span>{currentJob.strategy || 'pending strategy'}</span>
-                <span>{currentJob.result_sha256 ? currentJob.result_sha256.slice(0, 12) : currentJob.source_sha256.slice(0, 12)}</span>
-              </div>
+              <dl className="build-summary">
+                <div>
+                  <dt>Tune</dt>
+                  <dd>{selectedBase}</dd>
+                </div>
+                <div>
+                  <dt>Options</dt>
+                  <dd>{selectedAddons.length ? selectedAddons.map((option) => option.label).join(', ') : 'None'}</dd>
+                </div>
+              </dl>
               {currentJob.error_message ? <div className="form-error">{currentJob.error_message}</div> : null}
               {currentJob.status === 'ready' ? (
-                <button className="primary-button" onClick={() => void downloadBuild(currentJob.id, currentJob.result_filename)}>
+                <button className="primary-action" type="button" onClick={() => void downloadBuild(currentJob.id, currentJob.result_filename)}>
                   <Download size={16} />
                   Download file
                 </button>
@@ -388,8 +494,9 @@ function BuilderPage({
           </div>
         ) : (
           <div className="empty-state">
-            <Database size={34} />
-            <span>No active build</span>
+            <FileCog size={34} />
+            <strong>No active build</strong>
+            <span>Select a file and choose the requested options.</span>
           </div>
         )}
       </section>
@@ -399,15 +506,15 @@ function BuilderPage({
 
 function ProjectsPage({ projects, builds }: { projects: Project[]; builds: BuildJob[] }) {
   return (
-    <section className="panel full-panel">
+    <section className="workspace-panel full-panel">
       <div className="section-heading">
         <div>
-          <span>Workspace</span>
-          <h2>Projects and recent builds</h2>
+          <span>Saved work</span>
+          <h2>Projects</h2>
         </div>
       </div>
       <div className="table-list">
-        {[...projects].map((project) => {
+        {projects.map((project) => {
           const build = builds.find((item) => item.id === project.last_build_id);
           return (
             <div className="table-row" key={project.id}>
@@ -416,112 +523,88 @@ function ProjectsPage({ projects, builds }: { projects: Project[]; builds: Build
                 <span>{project.vehicle_label || project.source_filename || 'Unlabeled project'}</span>
               </div>
               <div>{project.ecu_label || 'ECU pending'}</div>
-              <div>{build ? <StatusBadge status={build.status} /> : <span className="muted">No build</span>}</div>
+              <div>{build ? <StatusBadge status={build.status} /> : <span className="muted">No build yet</span>}</div>
             </div>
           );
         })}
-        {!projects.length ? <div className="empty-state slim">No saved projects yet</div> : null}
+        {!projects.length ? (
+          <div className="empty-state slim">
+            <FolderClock size={28} />
+            <strong>No saved projects yet</strong>
+            <span>Saved file builds will appear here.</span>
+          </div>
+        ) : null}
       </div>
     </section>
   );
 }
 
-function SubscriptionPage({ subscription }: { subscription: Subscription | null }) {
+function AccountPage({ subscription, user }: { subscription: Subscription | null; user: User }) {
   const used = subscription?.files_used_this_period || 0;
   const limit = subscription?.monthly_file_limit || 1;
   const percent = Math.min(100, Math.round((used / limit) * 100));
+
   return (
-    <section className="panel full-panel">
+    <section className="workspace-panel full-panel">
       <div className="section-heading">
         <div>
           <span>Profile</span>
-          <h2>Subscription</h2>
+          <h2>Account and package</h2>
         </div>
         {subscription ? <StatusBadge status={subscription.status} /> : null}
       </div>
-      {subscription ? (
-        <div className="subscription-layout">
-          <div className="plan-block">
-            <span>Current package</span>
-            <strong>{subscription.plan_name}</strong>
-            <p>
-              {used} of {limit} files used
-            </p>
+      <div className="account-layout">
+        <div className="profile-block">
+          <span>Signed in as</span>
+          <strong>{user.display_name || user.email}</strong>
+          <p>{user.company_name || user.email}</p>
+        </div>
+        <div className="plan-block">
+          <span>Current package</span>
+          <strong>{subscription?.plan_name || 'Loading'}</strong>
+          <p>
+            {used} of {limit} files used this period
+          </p>
+        </div>
+        <div className="usage-block">
+          <div className="progress-bar large">
+            <span style={{ width: `${percent}%` }} />
           </div>
-          <div className="usage-block">
-            <div className="progress-bar large">
-              <span style={{ width: `${percent}%` }} />
-            </div>
-            <div className="job-meta">
-              <span>{percent}% used</span>
-              <span>Renews {new Date(subscription.period_ends_at).toLocaleDateString()}</span>
-            </div>
+          <div className="usage-meta">
+            <span>{percent}% used</span>
+            <span>{subscription ? `Renews ${new Date(subscription.period_ends_at).toLocaleDateString()}` : 'Loading renewal'}</span>
           </div>
         </div>
-      ) : (
-        <div className="empty-state slim">Subscription loading</div>
-      )}
+      </div>
     </section>
   );
 }
 
-function ServicesPage({ status }: { status: IntegrationStatus | null }) {
-  const ok = Boolean(status?.configured && status?.health);
-  return (
-    <section className="panel full-panel">
-      <div className="section-heading">
-        <div>
-          <span>Infrastructure</span>
-          <h2>Revtech services</h2>
-        </div>
-        <span className={clsx('status-badge', ok && 'ready', !ok && 'failed')}>
-          {ok ? <CheckCircle2 size={13} /> : <CircleAlert size={13} />}
-          {ok ? 'connected' : 'attention'}
-        </span>
-      </div>
-      <div className="service-grid">
-        <div>
-          <span>Mode</span>
-          <strong>{status?.mode || 'loading'}</strong>
-        </div>
-        <div>
-          <span>Endpoint</span>
-          <strong>{status?.revtech_api_base_url || '-'}</strong>
-        </div>
-        <div>
-          <span>WinOLS</span>
-          <strong>{String((status?.health?.winols_service as { status?: string } | undefined)?.status || 'pending')}</strong>
-        </div>
-        <div>
-          <span>Message</span>
-          <strong>{status?.message || 'OK'}</strong>
-        </div>
-      </div>
-    </section>
-  );
+function pageTitle(page: PageKey) {
+  if (page === 'projects') return 'Projects';
+  if (page === 'account') return 'Account';
+  return 'File builder';
 }
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(Boolean(readToken()));
   const [activePage, setActivePage] = useState<PageKey>('builder');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [builds, setBuilds] = useState<BuildJob[]>([]);
   const [currentJob, setCurrentJob] = useState<BuildJob | null>(null);
-  const [integration, setIntegration] = useState<IntegrationStatus | null>(null);
 
   async function refreshData() {
-    const [subscriptionData, projectsData, buildsData, integrationData] = await Promise.all([
+    const [subscriptionData, projectsData, buildsData] = await Promise.all([
       getSubscription().catch(() => null),
       listProjects().catch(() => []),
       listBuilds().catch(() => ({ items: [] })),
-      getIntegrationStatus().catch(() => null),
     ]);
     setSubscription(subscriptionData);
     setProjects(projectsData);
     setBuilds(buildsData.items);
-    setIntegration(integrationData);
     setCurrentJob((current) => current || buildsData.items[0] || null);
   }
 
@@ -553,12 +636,16 @@ export default function App() {
   function logout() {
     clearToken();
     setUser(null);
+    setProjects([]);
+    setBuilds([]);
+    setCurrentJob(null);
+    setSubscription(null);
+    setActivePage('builder');
   }
 
   const page = useMemo(() => {
     if (activePage === 'projects') return <ProjectsPage projects={projects} builds={builds} />;
-    if (activePage === 'subscription') return <SubscriptionPage subscription={subscription} />;
-    if (activePage === 'services') return <ServicesPage status={integration} />;
+    if (activePage === 'account' && user) return <AccountPage subscription={subscription} user={user} />;
     return (
       <BuilderPage
         currentJob={currentJob}
@@ -569,7 +656,7 @@ export default function App() {
         }}
       />
     );
-  }, [activePage, builds, currentJob, integration, projects, subscription]);
+  }, [activePage, builds, currentJob, projects, subscription, user]);
 
   if (loading) {
     return (
@@ -583,7 +670,7 @@ export default function App() {
   if (!user) {
     return (
       <>
-        <Titlebar user={null} />
+        <TopChrome user={null} />
         <LoginScreen
           onAuthed={(nextUser) => {
             setUser(nextUser);
@@ -594,25 +681,31 @@ export default function App() {
     );
   }
 
+  const filesLabel = subscription ? `${subscription.files_used_this_period}/${subscription.monthly_file_limit} files` : 'Package loading';
+
   return (
     <div className="app-shell">
-      <Titlebar user={user} />
-      <div className="app-body">
-        <Sidebar active={activePage} onChange={setActivePage} onLogout={logout} />
-        <main className="content">
-          <div className="content-heading">
-            <div>
-              <span>{activePage}</span>
-              <h1>{activePage === 'builder' ? 'File builder' : activePage === 'projects' ? 'Projects' : activePage === 'subscription' ? 'Subscription' : 'Services'}</h1>
-            </div>
-            <div className="top-metric">
-              <Settings size={15} />
-              {subscription ? `${subscription.files_used_this_period}/${subscription.monthly_file_limit} files` : 'Loading'}
-            </div>
+      <TopChrome user={user} />
+      <Sidebar
+        active={activePage}
+        collapsed={sidebarCollapsed}
+        onChange={setActivePage}
+        onLogout={logout}
+        onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
+      />
+      <main className="workspace">
+        <div className="workspace-heading">
+          <div>
+            <span>Apex workspace</span>
+            <h1>{pageTitle(activePage)}</h1>
           </div>
-          {page}
-        </main>
-      </div>
+          <div className="package-pill">
+            <Gauge size={15} />
+            {filesLabel}
+          </div>
+        </div>
+        {page}
+      </main>
     </div>
   );
 }

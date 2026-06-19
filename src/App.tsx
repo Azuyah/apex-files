@@ -146,8 +146,8 @@ function LoginScreen({ onAuthed }: { onAuthed: (user: User) => void }) {
           <p>{mode === 'login' ? 'Access your tuner workspace.' : 'Start a new Apex Files workspace.'}</p>
         </div>
         <label>
-          <span>Email</span>
-          <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" autoComplete="email" />
+          <span>Account</span>
+          <input value={email} onChange={(event) => setEmail(event.target.value)} type="text" autoComplete="username" />
         </label>
         {mode === 'register' ? (
           <>

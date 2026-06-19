@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     revtech_api_base_url: str = "https://files.revtechfiles.com/api/proxy"
     revtech_service_token: str = ""
     revtech_timeout_seconds: int = 600
+    temp_admin_enabled: bool = True
+    temp_admin_username: str = "admin"
+    temp_admin_password: str = "admin"
 
     model_config = SettingsConfigDict(
         env_file=("backend/.env", ".env"),

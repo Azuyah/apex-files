@@ -48,9 +48,10 @@ def register(payload: AuthRegisterIn, db: Session = Depends(get_db)) -> AuthOut:
 
 @router.post("/login", response_model=AuthOut)
 def login(payload: AuthLoginIn, db: Session = Depends(get_db)) -> AuthOut:
-    user = db.scalar(select(User).where(User.email == payload.email.lower()))
+    account = payload.email.strip().lower()
+    user = db.scalar(select(User).where(User.email == account))
     if not user or not verify_password(payload.password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid account or password")
     return AuthOut(token=create_token(user.id), user=UserOut.model_validate(user))
 
 

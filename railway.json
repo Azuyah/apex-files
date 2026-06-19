@@ -2,10 +2,10 @@
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
     "builder": "RAILPACK",
-    "buildCommand": "npm run build"
+    "buildCommand": "node scripts/railway-build.cjs"
   },
   "deploy": {
-    "startCommand": "npm run preview -- --host 0.0.0.0 --port $PORT",
+    "startCommand": "node scripts/railway-start.cjs",
     "healthcheckPath": "/",
     "healthcheckTimeout": 120,
     "restartPolicyType": "ON_FAILURE",

@@ -14,7 +14,7 @@ class AuthRegisterIn(BaseModel):
 
 
 class AuthLoginIn(BaseModel):
-    email: EmailStr
+    email: str = Field(min_length=1)
     password: str
 
 

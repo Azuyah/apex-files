@@ -1,0 +1,331 @@
+<Window x:Class="ApexInstaller.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Apex Files Installer"
+        Width="920"
+        Height="560"
+        MinWidth="860"
+        MinHeight="520"
+        WindowStartupLocation="CenterScreen"
+        Background="#090A0D"
+        ResizeMode="CanMinimize">
+    <Window.Resources>
+        <Style x:Key="SolidProgressBar" TargetType="ProgressBar">
+            <Setter Property="Height" Value="18" />
+            <Setter Property="Background" Value="#171C25" />
+            <Setter Property="Foreground" Value="#F97316" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ProgressBar">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="#2E384F"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                SnapsToDevicePixels="True">
+                            <Grid x:Name="Track" ClipToBounds="True">
+                                <Border x:Name="PART_Indicator"
+                                        HorizontalAlignment="Left"
+                                        Background="{TemplateBinding Foreground}"
+                                        CornerRadius="7" />
+                            </Grid>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="OptionCheckBox" TargetType="CheckBox">
+            <Setter Property="Foreground" Value="#FFFFFF" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="22" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border x:Name="Box"
+                                    Width="18"
+                                    Height="18"
+                                    CornerRadius="5"
+                                    BorderThickness="1"
+                                    BorderBrush="#455064"
+                                    Background="#10141B"
+                                    VerticalAlignment="Center" />
+                            <Path x:Name="Tick"
+                                  Grid.Column="0"
+                                  Data="M 4 9 L 7.5 12.5 L 14.5 5.5"
+                                  Stroke="#FFFFFF"
+                                  StrokeThickness="2"
+                                  StrokeStartLineCap="Round"
+                                  StrokeEndLineCap="Round"
+                                  StrokeLineJoin="Round"
+                                  Visibility="Collapsed"
+                                  VerticalAlignment="Center"
+                                  HorizontalAlignment="Center" />
+                            <ContentPresenter Grid.Column="1"
+                                              VerticalAlignment="Center"
+                                              Margin="8,0,0,0" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Box" Property="Background" Value="#F97316" />
+                                <Setter TargetName="Box" Property="BorderBrush" Value="#F97316" />
+                                <Setter TargetName="Tick" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Box" Property="BorderBrush" Value="#6B7DA8" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.7" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="RoundButton" TargetType="Button">
+            <Setter Property="Background" Value="#1A202B" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="#374152" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="14,7" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="9">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Opacity" Value="0.93" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Root" Property="Opacity" Value="0.82" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Root" Property="Opacity" Value="0.55" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PrimaryRoundButton" TargetType="Button" BasedOn="{StaticResource RoundButton}">
+            <Setter Property="Background" Value="#F97316" />
+            <Setter Property="BorderBrush" Value="#F97316" />
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="250" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0" Background="#11151C" BorderBrush="#262B35" BorderThickness="0,0,1,0">
+            <Grid Margin="18">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0">
+                    <Image Source="Assets/apex.png" Width="42" Height="42" Stretch="Uniform" HorizontalAlignment="Left" />
+                    <TextBlock Margin="0,12,0,0" Foreground="#FFFFFF" FontSize="16" FontWeight="Bold" Text="Apex Files" />
+                    <TextBlock Margin="0,4,0,0" Foreground="#93A4BC" FontSize="11" FontWeight="Bold" Text="POWERED BY REVTECH" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="1" Margin="0,24,0,0">
+                    <TextBlock x:Name="StepWelcome" Margin="0,0,0,8" Foreground="#FFFFFF" FontWeight="SemiBold" Text="1. Welcome" />
+                    <TextBlock x:Name="StepOptions" Margin="0,0,0,8" Foreground="#8E97AA" Text="2. Options" />
+                    <TextBlock x:Name="StepInstall" Margin="0,0,0,8" Foreground="#8E97AA" Text="3. Installing" />
+                    <TextBlock x:Name="StepFinish" Foreground="#8E97AA" Text="4. Complete" />
+                </StackPanel>
+
+                <Border Grid.Row="3" CornerRadius="10" Background="#181E28" BorderBrush="#2C3444" BorderThickness="1" Padding="10">
+                    <StackPanel>
+                        <TextBlock Foreground="#FFFFFF" FontSize="12" FontWeight="SemiBold" Text="Installer support" />
+                        <TextBlock Foreground="#9AA3B6" FontSize="11" TextWrapping="Wrap"
+                                   Text="If Windows blocks setup, contact RevTech support and mention Apex Files." />
+                        <Button Margin="0,8,0,0"
+                                Height="28"
+                                Style="{StaticResource PrimaryRoundButton}"
+                                Content="Open support"
+                                Click="OpenSupport_Click" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="66" />
+            </Grid.RowDefinitions>
+
+            <Grid x:Name="PageWelcome" Margin="34,26,34,0">
+                <StackPanel>
+                    <TextBlock Foreground="#FFFFFF" FontSize="28" FontWeight="SemiBold" Text="Install Apex Files" />
+                    <TextBlock Margin="0,10,0,0" Foreground="#AEB7CA" FontSize="14"
+                               Text="Apex Files installs as a standalone Windows app for tuner file builds, projects, and subscription access."
+                               TextWrapping="Wrap" />
+
+                    <Border Margin="0,22,0,0" CornerRadius="12" Background="#111720" BorderBrush="#2A3242" BorderThickness="1" Padding="16">
+                        <StackPanel>
+                            <TextBlock Foreground="#FFFFFF" FontSize="16" FontWeight="SemiBold" Text="Included in this installer" />
+                            <TextBlock Margin="0,8,0,0" Foreground="#AEB7CA" Text="- Apex Files desktop application" />
+                            <TextBlock Foreground="#AEB7CA" Text="- Direct connection to the Apex backend" />
+                            <TextBlock Foreground="#AEB7CA" Text="- File builder, projects, account, and package views" />
+                            <TextBlock Foreground="#AEB7CA" Text="- Generated Apex icon and Windows shortcuts" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Grid>
+
+            <Grid x:Name="PageOptions" Margin="34,26,34,0" Visibility="Collapsed">
+                <StackPanel>
+                    <TextBlock Foreground="#FFFFFF" FontSize="28" FontWeight="SemiBold" Text="Installer options" />
+                    <TextBlock Margin="0,10,0,18" Foreground="#AEB7CA" FontSize="14"
+                               Text="Choose the install location and shortcuts before setup starts."
+                               TextWrapping="Wrap" />
+
+                    <Border CornerRadius="12" Background="#111720" BorderBrush="#2A3242" BorderThickness="1" Padding="16">
+                        <StackPanel>
+                            <CheckBox x:Name="DesktopShortcutCheckbox"
+                                      Style="{StaticResource OptionCheckBox}"
+                                      Content="Create desktop shortcut"
+                                      IsChecked="True"
+                                      Margin="0,0,0,8" />
+                            <CheckBox x:Name="LaunchNowCheckbox"
+                                      Style="{StaticResource OptionCheckBox}"
+                                      Content="Launch Apex Files after install"
+                                      IsChecked="True"
+                                      Margin="0,0,0,8" />
+                            <CheckBox x:Name="StartOnWindowsStartupCheckbox"
+                                      Style="{StaticResource OptionCheckBox}"
+                                      Content="Start Apex Files on Windows startup"
+                                      IsChecked="False"
+                                      Margin="0,0,0,12" />
+
+                            <TextBlock Foreground="#9DA7BC" Margin="0,6,0,6" Text="Installation directory" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="96" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="InstallDirTextBox"
+                                         Height="34"
+                                         Padding="8,6"
+                                         Background="#0D1118"
+                                         Foreground="#FFFFFF"
+                                         BorderBrush="#39435A"
+                                         BorderThickness="1"
+                                         Text="C:\Program Files\Apex Files" />
+                                <Button Grid.Column="1"
+                                        Margin="10,0,0,0"
+                                        Height="34"
+                                        Style="{StaticResource RoundButton}"
+                                        Content="Browse"
+                                        Click="BrowseInstallDir_Click" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Grid>
+
+            <Grid x:Name="PageInstalling" Margin="34,26,34,0" Visibility="Collapsed">
+                <StackPanel>
+                    <TextBlock Foreground="#FFFFFF" FontSize="28" FontWeight="SemiBold" Text="Installing Apex Files" />
+                    <TextBlock Margin="0,10,0,20" Foreground="#AEB7CA" FontSize="14" TextWrapping="Wrap"
+                               Text="Please wait while setup installs the desktop app." />
+
+                    <Border CornerRadius="12" Background="#111720" BorderBrush="#2A3242" BorderThickness="1" Padding="16">
+                        <StackPanel>
+                            <ProgressBar x:Name="InstallProgress"
+                                         Style="{StaticResource SolidProgressBar}"
+                                         Minimum="0"
+                                         Maximum="100"
+                                         Value="0" />
+                            <TextBlock x:Name="InstallStatusText" Margin="0,12,0,0" Foreground="#FFFFFF" Text="Preparing installer..." />
+                            <TextBlock x:Name="InstallDetailText" Margin="0,8,0,0" Foreground="#9DA7BC" TextWrapping="Wrap"
+                                       Text="Waiting for payload..." />
+                            <TextBlock Margin="0,12,0,6" Foreground="#8F99AE" Text="File activity" />
+                            <ListBox x:Name="InstalledFilesList"
+                                     Height="130"
+                                     Background="#0D1118"
+                                     BorderBrush="#2F3950"
+                                     Foreground="#D7DEEA" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Grid>
+
+            <Grid x:Name="PageFinish" Margin="34,26,34,0" Visibility="Collapsed">
+                <StackPanel>
+                    <TextBlock x:Name="FinishTitle" Foreground="#FFFFFF" FontSize="28" FontWeight="SemiBold" Text="Installation complete" />
+                    <TextBlock x:Name="FinishBody" Margin="0,10,0,20" Foreground="#AEB7CA" FontSize="14" TextWrapping="Wrap"
+                               Text="Apex Files has been installed successfully." />
+
+                    <Border CornerRadius="12" Background="#111720" BorderBrush="#2A3242" BorderThickness="1" Padding="16">
+                        <StackPanel>
+                            <TextBlock Foreground="#FFFFFF" FontWeight="SemiBold" Text="Next steps" />
+                            <TextBlock Margin="0,8,0,0" Foreground="#9DA7BC" Text="- Log in with your Apex Files account" />
+                            <TextBlock Foreground="#9DA7BC" Text="- Build files from the File builder page" />
+                            <TextBlock Foreground="#9DA7BC" Text="- Check your usage and package from Account" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Grid>
+
+            <Border Grid.Row="1" BorderBrush="#22283A" BorderThickness="0,1,0,0" Background="#0D1118">
+                <Grid Margin="20,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock x:Name="FooterStatusText" VerticalAlignment="Center" Foreground="#8E97AA" Text="Ready" />
+
+                    <Button x:Name="BackButton"
+                            Grid.Column="1"
+                            Margin="0,0,10,0"
+                            Width="92"
+                            Height="34"
+                            Style="{StaticResource RoundButton}"
+                            Content="Back"
+                            Click="BackButton_Click" />
+
+                    <Button x:Name="NextButton"
+                            Grid.Column="2"
+                            Margin="0,0,10,0"
+                            Width="106"
+                            Height="34"
+                            Style="{StaticResource PrimaryRoundButton}"
+                            Content="Next"
+                            Click="NextButton_Click" />
+
+                    <Button x:Name="CancelButton"
+                            Grid.Column="3"
+                            Width="92"
+                            Height="34"
+                            Style="{StaticResource RoundButton}"
+                            Content="Cancel"
+                            Click="CancelButton_Click" />
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>

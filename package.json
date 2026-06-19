@@ -14,6 +14,7 @@
     "build": "tsc -b && vite build",
     "build:desktop:win": "npm run build && electron-builder --win nsis --config.win.signExecutable=false",
     "build:desktop:dir": "npm run build && electron-builder --win dir --config.win.signExecutable=false",
+    "build:desktop:custom": "npm run build:desktop:dir && powershell -NoProfile -ExecutionPolicy Bypass -File build/build-custom-bootstrapper.ps1",
     "preview": "vite preview",
     "lint": "eslint ."
   },

@@ -17,3 +17,6 @@ backend/storage/uploads/*
 backend/storage/outputs/*
 !backend/storage/uploads/.gitkeep
 !backend/storage/outputs/.gitkeep
+build/ApexInstaller/Payload/
+build/ApexInstaller/bin/
+build/ApexInstaller/obj/

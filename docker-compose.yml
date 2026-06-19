@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: apex-files-postgres
+    environment:
+      POSTGRES_USER: apex
+      POSTGRES_PASSWORD: apex
+      POSTGRES_DB: apex_files
+    ports:
+      - "5434:5432"
+    volumes:
+      - apex_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U apex -d apex_files"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  apex_postgres_data:

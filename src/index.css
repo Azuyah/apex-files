@@ -1423,6 +1423,7 @@ select:focus {
 .finished-summary div,
 .modal-file-strip,
 .success-panel {
+  min-width: 0;
   border: 1px solid var(--line-soft);
   border-radius: 9px;
   padding: 11px;
@@ -1435,8 +1436,17 @@ select:focus {
   overflow: hidden;
   color: white;
   font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.modal-file-strip strong {
+  overflow-wrap: anywhere;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .modal-file-strip,

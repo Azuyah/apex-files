@@ -4,12 +4,17 @@ import clsx from 'clsx';
 import {
   Activity,
   Bell,
+  Bolt,
   CheckCircle2,
   CircleAlert,
   Download,
   FileCog,
+  FileText,
   FolderClock,
+  FolderPlus,
   Gauge,
+  Info,
+  Leaf,
   Loader2,
   LockKeyhole,
   LogIn,
@@ -21,10 +26,13 @@ import {
   Play,
   Settings,
   ShieldCheck,
+  SlidersHorizontal,
   Square,
   Upload,
   UserPlus,
+  Wrench,
   X,
+  Zap,
 } from 'lucide-react';
 import {
   BuildJob,
@@ -47,29 +55,29 @@ import {
 type PageKey = 'builder' | 'projects' | 'account';
 
 const BASE_OPTIONS = [
-  { key: 'STAGE1', label: 'Stage 1' },
-  { key: 'STAGE2', label: 'Stage 2' },
-  { key: 'CUSTOM', label: 'Custom' },
-  { key: 'ECO', label: 'ECO' },
-  { key: 'TCU', label: 'TCU' },
+  { key: 'STAGE1', label: 'Stage 1', hint: 'Balanced performance', icon: <Zap size={16} /> },
+  { key: 'STAGE2', label: 'Stage 2', hint: 'Hardware-ready file', icon: <Bolt size={16} /> },
+  { key: 'CUSTOM', label: 'Custom', hint: 'Special request', icon: <SlidersHorizontal size={16} /> },
+  { key: 'ECO', label: 'ECO', hint: 'Efficiency tune', icon: <Leaf size={16} /> },
+  { key: 'TCU', label: 'TCU', hint: 'Gearbox file', icon: <Gauge size={16} /> },
 ];
 
 const ADDON_OPTIONS = [
-  { key: 'EGR_OFF', label: 'EGR off' },
-  { key: 'DPF_OFF', label: 'DPF off' },
-  { key: 'GPF_OPF_OFF', label: 'GPF / OPF off' },
-  { key: 'DECAT', label: 'Decat' },
-  { key: 'SWIRL_FLAPS_OFF', label: 'Swirl flaps off' },
-  { key: 'ADBLUE_OFF', label: 'Adblue off' },
-  { key: 'DTC_REMOVE', label: 'DTC removal' },
-  { key: 'MAF_OFF', label: 'MAF off' },
-  { key: 'LAMBDA_OFF', label: 'Lambda off' },
-  { key: 'NOX_OFF', label: 'NOx off' },
-  { key: 'START_STOP_OFF', label: 'Start / stop off' },
-  { key: 'TORQUE_MONITORING_OFF', label: 'Torque monitoring off' },
-  { key: 'HOT_START_FIX', label: 'Hot start fix' },
-  { key: 'POPS_BANGS', label: 'Pops & Bangs' },
-  { key: 'VMAX', label: 'V-max' },
+  { key: 'EGR_OFF', label: 'EGR off', group: 'Emissions' },
+  { key: 'DPF_OFF', label: 'DPF off', group: 'Emissions' },
+  { key: 'GPF_OPF_OFF', label: 'GPF / OPF off', group: 'Emissions' },
+  { key: 'DECAT', label: 'Decat', group: 'Emissions' },
+  { key: 'ADBLUE_OFF', label: 'Adblue off', group: 'Emissions' },
+  { key: 'NOX_OFF', label: 'NOx off', group: 'Emissions' },
+  { key: 'SWIRL_FLAPS_OFF', label: 'Swirl flaps off', group: 'Drivability' },
+  { key: 'MAF_OFF', label: 'MAF off', group: 'Drivability' },
+  { key: 'LAMBDA_OFF', label: 'Lambda off', group: 'Drivability' },
+  { key: 'START_STOP_OFF', label: 'Start / stop off', group: 'Comfort' },
+  { key: 'TORQUE_MONITORING_OFF', label: 'Torque monitoring off', group: 'Protection' },
+  { key: 'HOT_START_FIX', label: 'Hot start fix', group: 'Fixes' },
+  { key: 'DTC_REMOVE', label: 'DTC removal', group: 'Fixes' },
+  { key: 'POPS_BANGS', label: 'Pops & Bangs', group: 'Performance' },
+  { key: 'VMAX', label: 'V-max', group: 'Performance' },
 ];
 
 const BASE_OPTION_LABELS = Object.fromEntries(BASE_OPTIONS.map((option) => [option.key, option.label]));
@@ -79,6 +87,25 @@ function userFacingError(reason: unknown, fallback: string) {
   const message = reason instanceof Error ? reason.message : fallback;
   if (!message || /internal server error/i.test(message)) return fallback;
   return message;
+}
+
+function formatFileSize(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB';
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024)).toLocaleString()} KB`;
+}
+
+function formatPackageLabel(subscription: Subscription | null) {
+  if (!subscription) return 'Package loading';
+  if (subscription.monthly_file_limit >= 9999) return 'Unlimited files';
+  const remaining = Math.max(0, subscription.monthly_file_limit - subscription.files_used_this_period);
+  return `${remaining} files remaining`;
+}
+
+function buildOptionSummary(baseTune: string, addonKeys: string[]) {
+  const base = BASE_OPTION_LABELS[baseTune] || 'Stage 1';
+  if (!addonKeys.length) return base;
+  return `${base} + ${addonKeys.map((key) => ADDON_OPTION_LABELS[key] || key).join(', ')}`;
 }
 
 function ApexLogo({ compact = false }: { compact?: boolean }) {
@@ -336,6 +363,129 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function ModalShell({
+  title,
+  eyebrow,
+  icon,
+  onClose,
+  children,
+  footer,
+}: {
+  title: string;
+  eyebrow: string;
+  icon: ReactNode;
+  onClose: () => void;
+  children: ReactNode;
+  footer?: ReactNode;
+}) {
+  return (
+    <div className="modal-backdrop app-no-drag" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="modal-card">
+        <div className="modal-heading">
+          <div className="modal-icon">{icon}</div>
+          <div>
+            <span>{eyebrow}</span>
+            <h2>{title}</h2>
+          </div>
+          <button type="button" className="icon-action modal-close" onClick={onClose} title="Close">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="modal-body">{children}</div>
+        {footer ? <div className="modal-footer">{footer}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+function ProjectDetailsModal({
+  file,
+  vehicle,
+  ecu,
+  projectName,
+  saveProject,
+  onVehicle,
+  onEcu,
+  onProjectName,
+  onSaveProject,
+  onClose,
+}: {
+  file: File | null;
+  vehicle: string;
+  ecu: string;
+  projectName: string;
+  saveProject: boolean;
+  onVehicle: (value: string) => void;
+  onEcu: (value: string) => void;
+  onProjectName: (value: string) => void;
+  onSaveProject: (value: boolean) => void;
+  onClose: () => void;
+}) {
+  return (
+    <ModalShell eyebrow="Project" title="Project details" icon={<FolderPlus size={18} />} onClose={onClose}>
+      <div className="detail-grid">
+        <label>
+          <span>Project name</span>
+          <input value={projectName} onChange={(event) => onProjectName(event.target.value)} placeholder={file?.name || 'Customer build'} />
+        </label>
+        <label>
+          <span>Vehicle</span>
+          <input value={vehicle} onChange={(event) => onVehicle(event.target.value)} placeholder="BMW 320d F30" />
+        </label>
+        <label>
+          <span>ECU</span>
+          <input value={ecu} onChange={(event) => onEcu(event.target.value)} placeholder="EDC17C50" />
+        </label>
+        <label className="toggle-row setting-toggle">
+          <input type="checkbox" checked={saveProject} onChange={(event) => onSaveProject(event.target.checked)} />
+          <span>Save to projects</span>
+        </label>
+      </div>
+      <div className="modal-file-strip">
+        <FileText size={16} />
+        <div>
+          <strong>{file?.name || 'No file selected'}</strong>
+          <span>{file ? formatFileSize(file.size) : 'Select a file before starting a build'}</span>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function BuildCompleteModal({ job, onClose }: { job: BuildJob; onClose: () => void }) {
+  return (
+    <ModalShell eyebrow="Delivery" title="File ready" icon={<CheckCircle2 size={18} />} onClose={onClose}>
+      <div className="finished-summary">
+        <div>
+          <span>Completed file</span>
+          <strong>{job.result_filename || job.source_filename}</strong>
+        </div>
+        <div>
+          <span>Source</span>
+          <strong>{job.source_filename}</strong>
+        </div>
+        <div>
+          <span>Tune</span>
+          <strong>{buildOptionSummary(job.base_tune, job.requested_options?.addon_keys || [])}</strong>
+        </div>
+      </div>
+      <div className="success-panel">
+        <CheckCircle2 size={18} />
+        <span>Your file is ready to download.</span>
+      </div>
+      <div className="modal-actions">
+        <button className="quiet-action" type="button" onClick={onClose}>
+          Close
+        </button>
+        <button className="primary-action" type="button" onClick={() => void downloadBuild(job.id, job.result_filename)}>
+          <Download size={16} />
+          Download file
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
 function BuilderPage({
   onCreated,
   currentJob,
@@ -353,6 +503,7 @@ function BuilderPage({
   const [projectName, setProjectName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [projectDetailsOpen, setProjectDetailsOpen] = useState(false);
 
   function toggleAddon(key: string) {
     setAddons((current) => (current.includes(key) ? current.filter((item) => item !== key) : [...current, key]));
@@ -384,18 +535,26 @@ function BuilderPage({
   const currentBaseLabel = BASE_OPTION_LABELS[currentJob?.base_tune || baseTune] || selectedBase;
   const currentAddonKeys = currentJob?.requested_options?.addon_keys || addons;
   const currentAddonLabels = currentAddonKeys.map((key) => ADDON_OPTION_LABELS[key] || key).filter(Boolean);
+  const selectedOptionSummary = buildOptionSummary(baseTune, addons);
 
   return (
-    <div className="builder-layout">
-      <section className="workspace-panel builder-panel">
+    <>
+      <div className="builder-layout">
+        <section className="workspace-panel builder-panel">
         <div className="section-heading">
           <div>
             <span>Upload file</span>
             <h2>Build a customer file</h2>
           </div>
-          <button className="icon-action" type="button" onClick={() => fileInput.current?.click()} title="Select file">
-            <Upload size={18} />
-          </button>
+          <div className="builder-heading-actions">
+            <button className="secondary-action compact" type="button" onClick={() => setProjectDetailsOpen(true)}>
+              <FolderPlus size={15} />
+              Project details
+            </button>
+            <button className="icon-action" type="button" onClick={() => fileInput.current?.click()} title="Select file">
+              <Upload size={18} />
+            </button>
+          </div>
         </div>
         <input
           ref={fileInput}
@@ -406,59 +565,74 @@ function BuilderPage({
         <button className={clsx('drop-target', file && 'has-file')} type="button" onClick={() => fileInput.current?.click()}>
           <Upload size={26} />
           <strong>{file ? file.name : 'Select file'}</strong>
-          <span>{file ? `${Math.round(file.size / 1024).toLocaleString()} KB selected` : 'BIN, ORI, MOD or tool export'}</span>
+          <span>{file ? `${formatFileSize(file.size)} selected` : 'BIN, ORI, MOD or tool export'}</span>
         </button>
 
-        <div className="field-grid">
-          <label>
-            <span>Vehicle</span>
-            <input value={vehicle} onChange={(event) => setVehicle(event.target.value)} placeholder="BMW 320d F30" />
-          </label>
-          <label>
-            <span>ECU</span>
-            <input value={ecu} onChange={(event) => setEcu(event.target.value)} placeholder="EDC17C50" />
-          </label>
+        <div className="builder-summary-strip">
+          <div>
+            <span>Project</span>
+            <strong>{projectName || vehicle || file?.name || 'Not named yet'}</strong>
+          </div>
+          <div>
+            <span>Vehicle / ECU</span>
+            <strong>{[vehicle || 'Vehicle pending', ecu || 'ECU pending'].join(' / ')}</strong>
+          </div>
+          <button type="button" className="secondary-action compact" onClick={() => setProjectDetailsOpen(true)}>
+            <Info size={14} />
+            Edit details
+          </button>
         </div>
 
         <div className="option-block">
           <span className="block-label">Requested tune</span>
-          <div className="segmented">
+          <div className="tune-card-grid">
             {BASE_OPTIONS.map((option) => (
               <button
                 key={option.key}
                 type="button"
-                className={clsx(baseTune === option.key && 'selected')}
+                className={clsx('tune-card', baseTune === option.key && 'selected')}
                 onClick={() => setBaseTune(option.key)}
               >
-                {option.label}
+                <span className="tune-icon">{option.icon}</span>
+                <strong>{option.label}</strong>
+                <small>{option.hint}</small>
               </button>
             ))}
           </div>
         </div>
 
         <div className="option-block">
-          <span className="block-label">Options</span>
+          <div className="block-row">
+            <span className="block-label">Options</span>
+            <span className="selection-count">{addons.length ? `${addons.length} selected` : 'No add-ons'}</span>
+          </div>
           <div className="addon-grid">
             {ADDON_OPTIONS.map((option) => (
               <button
                 key={option.key}
                 type="button"
-                className={clsx(addons.includes(option.key) && 'selected')}
+                className={clsx('addon-chip', addons.includes(option.key) && 'selected')}
                 onClick={() => toggleAddon(option.key)}
               >
-                <span>{addons.includes(option.key) ? <CheckCircle2 size={14} /> : null}</span>
-                {option.label}
+                <span className="addon-state">{addons.includes(option.key) ? <CheckCircle2 size={13} /> : <Wrench size={13} />}</span>
+                <span className="addon-copy">
+                  <strong>{option.label}</strong>
+                  <small>{option.group}</small>
+                </span>
               </button>
             ))}
           </div>
         </div>
 
-        <div className="project-row">
-          <label className="toggle-row">
-            <input type="checkbox" checked={saveProject} onChange={(event) => setSaveProject(event.target.checked)} />
-            <span>Save project</span>
-          </label>
-          <input value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="Project name" />
+        <div className="build-review">
+          <div>
+            <span>Request</span>
+            <strong>{selectedOptionSummary}</strong>
+          </div>
+          <div>
+            <span>Project</span>
+            <strong>{saveProject ? 'Will be saved' : 'One-time build'}</strong>
+          </div>
         </div>
 
         {error ? <div className="form-error">{error}</div> : null}
@@ -466,9 +640,9 @@ function BuilderPage({
           {loading ? <Loader2 className="spin" size={17} /> : <Play size={17} />}
           Start file build
         </button>
-      </section>
+        </section>
 
-      <section className="workspace-panel result-panel">
+        <section className="workspace-panel result-panel">
         <div className="section-heading">
           <div>
             <span>Delivery</span>
@@ -488,7 +662,7 @@ function BuilderPage({
               </div>
               <div className="delivery-meta">
                 <span>{currentJob.current_stage}</span>
-                <span>{currentJob.status === 'ready' ? 'Download ready' : 'Building'}</span>
+                <span>{currentJob.status === 'ready' ? 'Download ready' : currentJob.status === 'failed' ? 'Needs attention' : 'Building'}</span>
               </div>
               <dl className="build-summary">
                 <div>
@@ -516,8 +690,23 @@ function BuilderPage({
             <span>Select a file and choose the requested options.</span>
           </div>
         )}
-      </section>
-    </div>
+        </section>
+      </div>
+      {projectDetailsOpen ? (
+        <ProjectDetailsModal
+          file={file}
+          vehicle={vehicle}
+          ecu={ecu}
+          projectName={projectName}
+          saveProject={saveProject}
+          onVehicle={setVehicle}
+          onEcu={setEcu}
+          onProjectName={setProjectName}
+          onSaveProject={setSaveProject}
+          onClose={() => setProjectDetailsOpen(false)}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -560,7 +749,8 @@ function AccountPage({ subscription, user }: { subscription: Subscription | null
   const [tab, setTab] = useState<'profile' | 'package' | 'settings'>('profile');
   const used = subscription?.files_used_this_period || 0;
   const limit = subscription?.monthly_file_limit || 1;
-  const percent = Math.min(100, Math.round((used / limit) * 100));
+  const unlimited = limit >= 9999;
+  const percent = unlimited ? 0 : Math.min(100, Math.round((used / limit) * 100));
 
   return (
     <section className="workspace-panel full-panel">
@@ -608,16 +798,14 @@ function AccountPage({ subscription, user }: { subscription: Subscription | null
             <div className="plan-block">
               <span>Current package</span>
               <strong>{subscription?.plan_name || 'Loading'}</strong>
-              <p>
-                {used} of {limit} files used this period
-              </p>
+              <p>{unlimited ? `${used} files processed this period` : `${used} of ${limit} files used this period`}</p>
             </div>
             <div className="usage-block account-wide">
               <div className="progress-bar large">
-                <span style={{ width: `${percent}%` }} />
+                <span style={{ width: `${unlimited ? 100 : percent}%` }} />
               </div>
               <div className="usage-meta">
-                <span>{percent}% used</span>
+                <span>{unlimited ? 'Unlimited package' : `${percent}% used`}</span>
                 <span>{subscription ? `Renews ${new Date(subscription.period_ends_at).toLocaleDateString()}` : 'Loading renewal'}</span>
               </div>
             </div>
@@ -669,6 +857,8 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [builds, setBuilds] = useState<BuildJob[]>([]);
   const [currentJob, setCurrentJob] = useState<BuildJob | null>(null);
+  const [finishedJob, setFinishedJob] = useState<BuildJob | null>(null);
+  const lastFinishedJobId = useRef<string | null>(null);
 
   async function refreshData() {
     const [subscriptionData, projectsData, buildsData] = await Promise.all([
@@ -707,12 +897,20 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [currentJob]);
 
+  useEffect(() => {
+    if (currentJob?.status !== 'ready') return;
+    if (lastFinishedJobId.current === currentJob.id) return;
+    lastFinishedJobId.current = currentJob.id;
+    setFinishedJob(currentJob);
+  }, [currentJob]);
+
   function logout() {
     clearToken();
     setUser(null);
     setProjects([]);
     setBuilds([]);
     setCurrentJob(null);
+    setFinishedJob(null);
     setSubscription(null);
     setActivePage('builder');
   }
@@ -755,7 +953,7 @@ export default function App() {
     );
   }
 
-  const filesLabel = subscription ? `${subscription.files_used_this_period}/${subscription.monthly_file_limit} files` : 'Package loading';
+  const filesLabel = formatPackageLabel(subscription);
 
   return (
     <div className="app-shell">
@@ -780,6 +978,7 @@ export default function App() {
         </div>
         {page}
       </main>
+      {finishedJob ? <BuildCompleteModal job={finishedJob} onClose={() => setFinishedJob(null)} /> : null}
     </div>
   );
 }

@@ -641,7 +641,7 @@ function AccountPage({ subscription, user }: { subscription: Subscription | null
             </label>
             <label className="toggle-row setting-toggle">
               <input type="checkbox" defaultChecked />
-              <span>Save projects automatically</span>
+              <span>Save projects by default</span>
             </label>
             <label className="toggle-row setting-toggle">
               <input type="checkbox" defaultChecked />

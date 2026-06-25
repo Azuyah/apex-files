@@ -118,6 +118,19 @@ class RevtechClient:
             raise RevtechClientError(response.text or f"Revtech merge failed with {response.status_code}")
         return response.content, dict(response.headers)
 
+    async def download_file_blob(self, file_id: str) -> tuple[bytes, dict[str, str]]:
+        file_id = str(file_id or "").strip()
+        if not file_id:
+            raise RevtechClientError("Saved delivery file reference is missing.")
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(
+                f"{self.base_url}/admin/fileserver/files/{file_id}/download",
+                headers=self._headers(),
+            )
+        if response.status_code >= 400:
+            raise RevtechClientError(response.text or f"Revtech saved delivery download failed with {response.status_code}")
+        return response.content, dict(response.headers)
+
     async def run_patch_adaptation(
         self,
         file_path: Path,

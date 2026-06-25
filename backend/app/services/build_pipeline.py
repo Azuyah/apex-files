@@ -92,13 +92,13 @@ def display_addons(addon_keys: list[str]) -> str:
 def customer_safe_error(exc: Exception) -> str:
     message = str(exc).strip()
     if isinstance(exc, RevtechClientError):
-        if "needs an exact database version" in message:
+        if "needs a prepared database file" in message:
             return message
         if "not configured" in message.lower():
             return "The file build service is not connected yet. Please contact support."
         if "did not return a safe patch adaptation output" in message:
-            return "No safe automatic build was found for this file. Please try another file or contact support."
-        return "No safe automatic build was found for this file. Please try another file or contact support."
+            return "No prepared file was found for this request. Please try another file or contact support."
+        return "No prepared file was found for this request. Please try another file or contact support."
     if "timeout" in message.lower():
         return "The file build service took too long to respond. Please try again."
     return "Could not finish this file build. Please try again or contact support."
@@ -117,6 +117,63 @@ def available_versions(project: dict[str, Any]) -> list[dict[str, Any]]:
     if isinstance(raw_names, list):
         return [{"index": idx, "name": str(name)} for idx, name in enumerate(raw_names)]
     return []
+
+
+def is_fileserver_library_exact(match: dict[str, Any] | None, project: dict[str, Any] | None) -> bool:
+    project_meta = project.get("extra_meta") if isinstance(project, dict) and isinstance(project.get("extra_meta"), dict) else {}
+    source = str(project_meta.get("source") or project_meta.get("source_kind") or "").strip().lower()
+    library_meta = project_meta.get("fileserver_library_match") if isinstance(project_meta.get("fileserver_library_match"), dict) else {}
+    match_meta = match.get("match_meta") if isinstance(match, dict) and isinstance(match.get("match_meta"), dict) else {}
+    match_source = str(match_meta.get("match_source") or "").strip().lower()
+    return source == "fileserver_library_exact" or match_source == "fileserver_library_exact" or bool(library_meta.get("direct_delivery"))
+
+
+def fileserver_package_entries(match: dict[str, Any] | None, project: dict[str, Any] | None) -> list[dict[str, Any]]:
+    candidates: list[Any] = []
+    if isinstance(match, dict) and isinstance(match.get("match_meta"), dict):
+        candidates.append(match["match_meta"].get("package_variants"))
+    if isinstance(project, dict) and isinstance(project.get("extra_meta"), dict):
+        library_meta = project["extra_meta"].get("fileserver_library_match")
+        if isinstance(library_meta, dict):
+            candidates.append(library_meta.get("package_variants"))
+
+    for raw_entries in candidates:
+        if isinstance(raw_entries, list):
+            entries = [entry for entry in raw_entries if isinstance(entry, dict)]
+            if entries:
+                return entries
+    return []
+
+
+def select_fileserver_package(
+    match: dict[str, Any] | None,
+    project: dict[str, Any] | None,
+    version: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    entries = fileserver_package_entries(match, project)
+    if not entries:
+        return None
+
+    version_index = version.get("index") if isinstance(version, dict) else None
+    if isinstance(version_index, int):
+        found = next(
+            (
+                entry
+                for entry in entries
+                if str(entry.get("version_index") or "").strip() == str(version_index)
+            ),
+            None,
+        )
+        if found:
+            return found
+
+    version_name = normalize_version_text(version.get("name") if isinstance(version, dict) else None)
+    if version_name:
+        found = next((entry for entry in entries if normalize_version_text(entry.get("version_name")) == version_name), None)
+        if found:
+            return found
+
+    return entries[0] if len(entries) == 1 else None
 
 
 def select_versions(project: dict[str, Any], base_key: str, addon_keys: list[str]) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
@@ -233,7 +290,8 @@ async def process_build_job(job_id: str) -> None:
         output_bytes: bytes
         result_filename: str
 
-        top_project = matches[0].get("project") if matches else None
+        top_match = exact_match or (matches[0] if matches else None)
+        top_project = top_match.get("project") if isinstance(top_match, dict) else None
         if top_project is not None and not isinstance(top_project, dict):
             raise RevtechClientError("Revtech returned an invalid match project.")
 
@@ -245,20 +303,33 @@ async def process_build_job(job_id: str) -> None:
         if direct_version:
             if not isinstance(top_project, dict):
                 raise RevtechClientError("Revtech returned an invalid exact-match project.")
-            project_filename, project_path = project_live_identifiers(top_project)
-            update_job(db, job_id, progress=68, current_stage="Exporting matched version", strategy="exact_match")
-            output_bytes, headers = await client.export_version(
-                file_path,
-                project_filename=project_filename,
-                project_path=project_path,
-                version_name=str(direct_version.get("name") or ""),
-                version_index=direct_version.get("index") if isinstance(direct_version.get("index"), int) else None,
-            )
-            result_filename = output_filename_from_headers(headers, "apex-exact-match.bin")
-            strategy = "exact_match"
+            if is_fileserver_library_exact(top_match, top_project):
+                package_entry = select_fileserver_package(top_match, top_project, direct_version)
+                final_file_blob_id = str((package_entry or {}).get("final_file_blob_id") or "").strip()
+                if not final_file_blob_id:
+                    raise RevtechClientError("The saved database delivery is missing its file reference.")
+                update_job(db, job_id, progress=68, current_stage="Preparing matched file", strategy="fileserver_direct")
+                output_bytes, headers = await client.download_file_blob(final_file_blob_id)
+                fallback_name = str((package_entry or {}).get("final_filename") or "").strip() or "apex-file.bin"
+                result_filename = output_filename_from_headers(headers, fallback_name)
+                strategy = "fileserver_direct"
+            else:
+                project_filename, project_path = project_live_identifiers(top_project)
+                update_job(db, job_id, progress=68, current_stage="Exporting matched version", strategy="exact_match")
+                output_bytes, headers = await client.export_version(
+                    file_path,
+                    project_filename=project_filename,
+                    project_path=project_path,
+                    version_name=str(direct_version.get("name") or ""),
+                    version_index=direct_version.get("index") if isinstance(direct_version.get("index"), int) else None,
+                )
+                result_filename = output_filename_from_headers(headers, "apex-exact-match.bin")
+                strategy = "exact_match"
         elif merge_versions:
             if not isinstance(top_project, dict):
                 raise RevtechClientError("Revtech returned an invalid version-merge project.")
+            if is_fileserver_library_exact(top_match, top_project):
+                raise RevtechClientError("This request needs a prepared database file. No compatible file was found for this request.")
             project_filename, project_path = project_live_identifiers(top_project)
             update_job(db, job_id, progress=68, current_stage="Merging requested versions", strategy="version_merge")
             merge_label = " + ".join(str(version.get("name") or "") for version in merge_versions if version.get("name"))
@@ -282,7 +353,7 @@ async def process_build_job(job_id: str) -> None:
             if unsupported_patch_keys:
                 labels = display_addons(unsupported_patch_keys)
                 raise RevtechClientError(
-                    f"{labels} needs an exact database version. No compatible version was found for this file."
+                    f"{labels} needs a prepared database file. No compatible file was found for this request."
                 )
             update_job(db, job_id, progress=68, current_stage="Validating patch adaptation")
             patch_payload, output_bytes, result_filename = await client.run_patch_adaptation(

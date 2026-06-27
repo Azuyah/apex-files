@@ -16,10 +16,10 @@ if (!singleInstance) {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1240,
-    height: 820,
-    minWidth: 1040,
-    minHeight: 680,
+    width: 1500,
+    height: 930,
+    minWidth: 1360,
+    minHeight: 900,
     title: 'Apex Files',
     frame: false,
     backgroundColor: '#090a0c',

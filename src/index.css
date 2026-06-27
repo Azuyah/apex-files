@@ -3170,3 +3170,131 @@ body {
   border-radius: 6px;
   background: var(--accent);
 }
+
+/* Final product pass: fixed shell behavior and tighter file-service cards. */
+body {
+  min-width: 1360px;
+  min-height: 900px;
+}
+
+textarea {
+  width: 100%;
+  min-height: 94px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  outline: none;
+  padding: 9px 11px;
+  color: white;
+  background: #0f1517;
+  font: inherit;
+  line-height: 1.35;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+textarea:focus {
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.12);
+}
+
+.app-header-drag {
+  pointer-events: none;
+}
+
+.app-header {
+  -webkit-app-region: drag;
+}
+
+.header-actions,
+.header-actions *,
+.window-actions,
+.window-actions * {
+  -webkit-app-region: no-drag;
+}
+
+.upload-service-card,
+.results-service-card,
+.summary-service-card {
+  display: flex;
+  min-height: 357px;
+  flex-direction: column;
+}
+
+.upload-service-card .ecu-drop-target {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.upload-service-card .file-strip {
+  flex: 0 0 auto;
+}
+
+.match-results-box,
+.summary-download-box {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 5px;
+  padding: 12px;
+  background: #12191b;
+}
+
+.match-results-box .match-info-list {
+  margin-top: 0;
+}
+
+.match-results-box .details-action {
+  margin-top: auto;
+}
+
+.summary-download-box {
+  gap: 11px;
+}
+
+.summary-download-box .selected-summary {
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.summary-download-box .download-action {
+  margin-top: auto;
+}
+
+.summary-download-box .safe-note {
+  justify-content: center;
+}
+
+.delivery-save-form {
+  display: grid;
+  gap: 10px;
+}
+
+.delivery-save-form label span {
+  color: rgba(148, 163, 184, 0.9);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.delivery-save-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.compact-success {
+  padding: 9px 11px;
+}
+
+.delivery-modal-actions {
+  grid-template-columns: 0.58fr 1fr 1fr;
+}
+
+.delivery-modal-actions button {
+  min-width: 0;
+  white-space: nowrap;
+}

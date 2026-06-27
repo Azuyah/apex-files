@@ -180,6 +180,19 @@ export const listBuilds = () => apiFetch<{ items: BuildJob[] }>('/builds');
 export const getBuild = (jobId: string) => apiFetch<BuildJob>(`/builds/${encodeURIComponent(jobId)}`);
 export const getIntegrationStatus = () => apiFetch<IntegrationStatus>('/integrations/revtech');
 
+export const createProject = (input: {
+  name: string;
+  vehicle_label: string;
+  ecu_label: string;
+  source_filename: string;
+  source_sha256: string;
+  requested_options: Record<string, unknown>;
+}) =>
+  apiFetch<Project>('/projects', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+
 export async function findBuildMatch(file: File) {
   const form = new FormData();
   form.append('file', file);

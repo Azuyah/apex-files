@@ -27,11 +27,8 @@ import {
   Loader2,
   LockKeyhole,
   LogIn,
-  LogOut,
   Maximize2,
   Minus,
-  PanelLeftClose,
-  PanelLeftOpen,
   Search,
   Settings,
   ShieldCheck,
@@ -53,6 +50,7 @@ import {
   User,
   clearToken,
   createBuild,
+  createProject,
   downloadBuild,
   findBuildMatch,
   getBuild,
@@ -204,13 +202,13 @@ function TopChrome({ user, subscription }: { user: User | null; subscription?: S
   return (
     <>
       <div className="app-drag app-header-drag" />
-      <header className="app-header app-no-drag">
+      <header className="app-header app-drag">
         <div className="header-brand">
           <ApexLogo />
           <div className="header-divider" />
           <span>Professional ECU Calibration. Unlimited Potential.</span>
         </div>
-        <div className="header-actions">
+        <div className="header-actions app-no-drag">
           <div className="header-plan">
             <Crown size={28} />
             <div>
@@ -363,17 +361,11 @@ function LoginScreen({ onAuthed }: { onAuthed: (user: User) => void }) {
 
 function Sidebar({
   active,
-  collapsed,
   onChange,
-  onLogout,
-  onToggleCollapsed,
   subscription,
 }: {
   active: PageKey;
-  collapsed: boolean;
   onChange: (page: PageKey) => void;
-  onLogout: () => void;
-  onToggleCollapsed: () => void;
   subscription: Subscription | null;
 }) {
   const items: { key: string; page: PageKey; label: string; icon: ReactNode; activeWhen?: PageKey; accent?: boolean }[] = [
@@ -390,7 +382,7 @@ function Sidebar({
   const renewDate = subscription ? new Date(subscription.period_ends_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : 'Loading';
 
   return (
-    <aside className={clsx('sidebar', collapsed && 'collapsed')}>
+    <aside className="sidebar">
       <div className="sidebar-inner">
         <nav>
           {items.map((item) => (
@@ -398,7 +390,6 @@ function Sidebar({
               key={item.key}
               type="button"
               className={clsx(item.activeWhen === active && 'active', item.accent && 'accent')}
-              title={collapsed ? item.label : undefined}
               onClick={() => onChange(item.page)}
             >
               {item.icon}
@@ -417,16 +408,6 @@ function Sidebar({
             <span>v0.1.0</span>
             <i />
             <span>Up to date</span>
-          </div>
-          <button type="button" className="sidebar-collapse" onClick={onToggleCollapsed} title={collapsed ? 'Expand menu' : undefined}>
-            {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-            <span>{collapsed ? 'Expand menu' : 'Collapse menu'}</span>
-          </button>
-          <div className="sidebar-footer">
-            <button type="button" className="logout-button" onClick={onLogout} title={collapsed ? 'Log out' : undefined}>
-              <LogOut size={16} />
-              <span>Log out</span>
-            </button>
           </div>
         </div>
       </div>
@@ -554,10 +535,49 @@ function ProjectDetailsModal({
   );
 }
 
-function BuildDeliveryModal({ job, onClose }: { job: BuildJob; onClose: () => void }) {
+function BuildDeliveryModal({ job, onClose, onSaved }: { job: BuildJob; onClose: () => void; onSaved: () => void }) {
   const ready = job.status === 'ready';
   const failed = job.status === 'failed';
   const addonLabels = (job.requested_options?.addon_keys || []).map((key) => ADDON_OPTION_LABELS[key] || key).filter(Boolean);
+  const [projectName, setProjectName] = useState(job.vehicle_label || job.result_filename || job.source_filename);
+  const [vehicleLabel, setVehicleLabel] = useState(job.vehicle_label);
+  const [ecuLabel, setEcuLabel] = useState(job.ecu_label);
+  const [comments, setComments] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  async function saveToFiles() {
+    if (!ready || !projectName.trim()) return;
+    setSaving(true);
+    setSaveError('');
+    try {
+      await createProject({
+        name: projectName.trim(),
+        vehicle_label: vehicleLabel.trim() || job.vehicle_label,
+        ecu_label: ecuLabel.trim() || job.ecu_label,
+        source_filename: job.result_filename || job.source_filename,
+        source_sha256: job.result_sha256 || job.source_sha256,
+        requested_options: {
+          saved_from: 'delivery',
+          build_id: job.id,
+          source_filename: job.source_filename,
+          source_sha256: job.source_sha256,
+          result_filename: job.result_filename,
+          result_sha256: job.result_sha256,
+          base_tune: job.base_tune,
+          addon_keys: job.requested_options?.addon_keys || [],
+          comments: comments.trim(),
+        },
+      });
+      setSaved(true);
+      onSaved();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Could not save this project.');
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <ModalShell
@@ -572,10 +592,6 @@ function BuildDeliveryModal({ job, onClose }: { job: BuildJob; onClose: () => vo
           <strong>{job.result_filename || job.source_filename}</strong>
         </div>
         <div>
-          <span>Status</span>
-          <strong>{job.current_stage}</strong>
-        </div>
-        <div>
           <span>Tune</span>
           <strong>{BASE_OPTION_LABELS[job.base_tune] || job.base_tune}</strong>
         </div>
@@ -584,29 +600,51 @@ function BuildDeliveryModal({ job, onClose }: { job: BuildJob; onClose: () => vo
           <strong>{addonLabels.length ? addonLabels.join(', ') : 'None'}</strong>
         </div>
       </div>
-      <div className="delivery-modal-progress">
-        <div className="job-title-row">
-          <span>{failed ? 'Stopped' : ready ? 'Complete' : 'Working'}</span>
-          <strong>{job.progress}%</strong>
-        </div>
-        <div className="progress-bar delivery-progress">
-          <span style={{ width: `${job.progress}%` }} />
-        </div>
-      </div>
       {job.error_message ? <div className="form-error">{job.error_message}</div> : null}
       {ready ? (
-        <div className="success-panel">
-          <CheckCircle2 size={18} />
-          <span>Your file is ready to download.</span>
+        <div className="delivery-save-form">
+          <div className="success-panel">
+            <CheckCircle2 size={18} />
+            <span>Your file is ready to download or save to My Files.</span>
+          </div>
+          <label>
+            <span>Project name</span>
+            <input value={projectName} onChange={(event) => setProjectName(event.target.value)} />
+          </label>
+          <div className="delivery-save-grid">
+            <label>
+              <span>Vehicle</span>
+              <input value={vehicleLabel} onChange={(event) => setVehicleLabel(event.target.value)} />
+            </label>
+            <label>
+              <span>ECU</span>
+              <input value={ecuLabel} onChange={(event) => setEcuLabel(event.target.value)} />
+            </label>
+          </div>
+          <label>
+            <span>Comments</span>
+            <textarea value={comments} rows={4} onChange={(event) => setComments(event.target.value)} />
+          </label>
+          {saved ? (
+            <div className="success-panel compact-success">
+              <CheckCircle2 size={16} />
+              <span>Saved to My Files.</span>
+            </div>
+          ) : null}
+          {saveError ? <div className="form-error">{saveError}</div> : null}
         </div>
       ) : null}
-      <div className="modal-actions">
+      <div className="modal-actions delivery-modal-actions">
         <button className="quiet-action" type="button" onClick={onClose}>
           Close
         </button>
-        <button className="primary-action" type="button" disabled={!ready} onClick={() => void downloadBuild(job.id, job.result_filename)}>
+        <button className="secondary-action" type="button" disabled={!ready} onClick={() => void downloadBuild(job.id, job.result_filename)}>
           <Download size={16} />
-          {ready ? 'Download file' : 'Preparing'}
+          {ready ? 'Download again' : 'Preparing'}
+        </button>
+        <button className="primary-action" type="button" disabled={!ready || saving || !projectName.trim()} onClick={() => void saveToFiles()}>
+          {saving ? <Loader2 className="spin" size={16} /> : <FolderPlus size={16} />}
+          Save to My Files
         </button>
       </div>
     </ModalShell>
@@ -798,20 +836,22 @@ function BuilderPage({
                 {matched ? 'Match confirmed' : matchResult ? 'No match' : 'Waiting'}
               </span>
             </div>
-            <div className="match-info-list">
-              <MatchInfoRow icon={<Car size={15} />} label="Vehicle" value={vehicleDisplay} />
-              <MatchInfoRow icon={<Car size={15} />} label="Brand" value={brandDisplay} />
-              <MatchInfoRow icon={<Car size={15} />} label="Model" value={modelDisplay} />
-              <MatchInfoRow icon={<Gauge size={15} />} label="Engine" value={engineDisplay} />
-              <MatchInfoRow icon={<Cpu size={15} />} label="ECU Type" value={ecuDisplay} />
-              <MatchInfoRow icon={<FileText size={15} />} label="Software Number" value={softwareDisplay} />
-              <MatchInfoRow icon={<Cpu size={15} />} label="Hardware Number" value={hardwareDisplay} />
-              <MatchInfoRow icon={<FileText size={15} />} label="File status" value={matched ? 'Original / stock' : 'Pending'} />
+            <div className="match-results-box">
+              <div className="match-info-list">
+                <MatchInfoRow icon={<Car size={15} />} label="Vehicle" value={vehicleDisplay} />
+                <MatchInfoRow icon={<Car size={15} />} label="Brand" value={brandDisplay} />
+                <MatchInfoRow icon={<Car size={15} />} label="Model" value={modelDisplay} />
+                <MatchInfoRow icon={<Gauge size={15} />} label="Engine" value={engineDisplay} />
+                <MatchInfoRow icon={<Cpu size={15} />} label="ECU Type" value={ecuDisplay} />
+                <MatchInfoRow icon={<FileText size={15} />} label="Software Number" value={softwareDisplay} />
+                <MatchInfoRow icon={<Cpu size={15} />} label="Hardware Number" value={hardwareDisplay} />
+                <MatchInfoRow icon={<FileText size={15} />} label="File status" value={matched ? 'Original / stock' : 'Pending'} />
+              </div>
+              <button className="secondary-action compact details-action" type="button" onClick={() => setProjectDetailsOpen(true)}>
+                View details
+                <Eye size={15} />
+              </button>
             </div>
-            <button className="secondary-action compact details-action" type="button" onClick={() => setProjectDetailsOpen(true)}>
-              View details
-              <Eye size={15} />
-            </button>
           </section>
 
           <section className={clsx('service-card tuning-service-card', !matched && 'locked')}>
@@ -875,61 +915,63 @@ function BuilderPage({
 
           <section className="service-card summary-service-card">
             <StepTitle index={5} title="Summary & download" />
-            <div className="selected-summary">
-              <span>Selected summary</span>
-              <ul>
-                <li>
-                  <CheckCircle2 size={14} />
-                  <strong>{selectedBaseLabel}</strong>
-                  <small>{baseTune === 'STAGE1' ? '~180 HP / ~380 Nm' : baseTune === 'STAGE2' ? '~200 HP / ~420 Nm' : ''}</small>
-                </li>
-                {selectedAddonLabels.length ? (
-                  selectedAddonLabels.map((label) => (
-                    <li key={label}>
-                      <CheckCircle2 size={14} />
-                      <strong>{label}</strong>
-                      <small>{ADDON_OPTIONS.find((option) => option.label === label)?.group || ''}</small>
-                    </li>
-                  ))
-                ) : (
+            <div className="summary-download-box">
+              <div className="selected-summary">
+                <span>Selected summary</span>
+                <ul>
                   <li>
                     <CheckCircle2 size={14} />
-                    <strong>{matched ? 'No additional options' : 'Pending match'}</strong>
-                    <small>{file?.name || ''}</small>
+                    <strong>{selectedBaseLabel}</strong>
+                    <small>{baseTune === 'STAGE1' ? '~180 HP / ~380 Nm' : baseTune === 'STAGE2' ? '~200 HP / ~420 Nm' : ''}</small>
                   </li>
-                )}
-              </ul>
-              <div className="summary-meta">
-                <span>Estimated File Size:</span>
-                <strong>{file ? formatFileSize(file.size) : 'Pending'}</strong>
-                <span>Package Cost:</span>
-                <strong>Included</strong>
-                <span>Delivery:</span>
-                <strong>{matched ? 'Instant Download' : 'Pending'}</strong>
+                  {selectedAddonLabels.length ? (
+                    selectedAddonLabels.map((label) => (
+                      <li key={label}>
+                        <CheckCircle2 size={14} />
+                        <strong>{label}</strong>
+                        <small>{ADDON_OPTIONS.find((option) => option.label === label)?.group || ''}</small>
+                      </li>
+                    ))
+                  ) : (
+                    <li>
+                      <CheckCircle2 size={14} />
+                      <strong>{matched ? 'No additional options' : 'Pending match'}</strong>
+                      <small>{file?.name || ''}</small>
+                    </li>
+                  )}
+                </ul>
+                <div className="summary-meta">
+                  <span>Estimated File Size:</span>
+                  <strong>{file ? formatFileSize(file.size) : 'Pending'}</strong>
+                  <span>Package Cost:</span>
+                  <strong>Included</strong>
+                  <span>Delivery:</span>
+                  <strong>{matched ? 'Instant Download' : 'Pending'}</strong>
+                </div>
               </div>
-            </div>
-            {error ? <div className="form-error">{error}</div> : null}
-            {matched ? (
-              <button className="primary-action download-action" disabled={!canBuild} type="button" onClick={() => void submit()}>
-                {loading ? <Loader2 className="spin" size={17} /> : <Download size={17} />}
-                Download file
-              </button>
-            ) : (
-              <div className="summary-waiting">
-                <Info size={15} />
-                <span>Download appears after a match is confirmed.</span>
+              {error ? <div className="form-error">{error}</div> : null}
+              {matched ? (
+                <button className="primary-action download-action" disabled={!canBuild} type="button" onClick={() => void submit()}>
+                  {loading ? <Loader2 className="spin" size={17} /> : <Download size={17} />}
+                  Download file
+                </button>
+              ) : (
+                <div className="summary-waiting">
+                  <Info size={15} />
+                  <span>Download appears after a match is confirmed.</span>
+                </div>
+              )}
+              <div className="safe-note">
+                <ShieldCheck size={15} />
+                <span>Files are checked and prepared securely.</span>
               </div>
-            )}
-            <div className="safe-note">
-              <ShieldCheck size={15} />
-              <span>Files are checked and prepared securely.</span>
+              {currentJob ? (
+                <button className="secondary-action compact delivery-action" type="button" onClick={onOpenDelivery}>
+                  <Activity size={15} />
+                  Open delivery
+                </button>
+              ) : null}
             </div>
-            {currentJob ? (
-              <button className="secondary-action compact delivery-action" type="button" onClick={onOpenDelivery}>
-                <Activity size={15} />
-                Open delivery
-              </button>
-            ) : null}
           </section>
 
           <div className="service-proof-row">
@@ -1111,7 +1153,6 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(Boolean(readToken()));
   const [activePage, setActivePage] = useState<PageKey>('builder');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [builds, setBuilds] = useState<BuildJob[]>([]);
@@ -1128,7 +1169,10 @@ export default function App() {
     setSubscription(subscriptionData);
     setProjects(projectsData);
     setBuilds(buildsData.items);
-    setCurrentJob((current) => current || buildsData.items[0] || null);
+    setCurrentJob((current) => {
+      if (!current) return null;
+      return buildsData.items.find((item) => item.id === current.id) || current;
+    });
   }
 
   useEffect(() => {
@@ -1162,17 +1206,6 @@ export default function App() {
     lastReadyJobId.current = currentJob.id;
     setDeliveryOpen(true);
   }, [currentJob]);
-
-  function logout() {
-    clearToken();
-    setUser(null);
-    setProjects([]);
-    setBuilds([]);
-    setCurrentJob(null);
-    setDeliveryOpen(false);
-    setSubscription(null);
-    setActivePage('builder');
-  }
 
   const page = useMemo(() => {
     if (activePage === 'projects') return <ProjectsPage projects={projects} builds={builds} />;
@@ -1221,10 +1254,7 @@ export default function App() {
       <TopChrome user={user} subscription={subscription} />
       <Sidebar
         active={activePage}
-        collapsed={sidebarCollapsed}
         onChange={setActivePage}
-        onLogout={logout}
-        onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
         subscription={subscription}
       />
       <main className="workspace">
@@ -1242,7 +1272,15 @@ export default function App() {
         ) : null}
         {page}
       </main>
-      {deliveryOpen && currentJob ? <BuildDeliveryModal job={currentJob} onClose={() => setDeliveryOpen(false)} /> : null}
+      {deliveryOpen && currentJob ? (
+        <BuildDeliveryModal
+          job={currentJob}
+          onClose={() => setDeliveryOpen(false)}
+          onSaved={() => {
+            void refreshData();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

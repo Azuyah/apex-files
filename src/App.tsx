@@ -656,7 +656,7 @@ function BuilderPage({
                     : 'Select a file first'}
             </strong>
           </div>
-          <button className="secondary-action compact" disabled={!file || matchLoading || loading} type="button" onClick={() => void findMatch()}>
+          <button className="match-action" disabled={!file || matchLoading || loading} type="button" onClick={() => void findMatch()}>
             {matchLoading ? <Loader2 className="spin" size={15} /> : <Search size={15} />}
             Find match
           </button>
@@ -727,10 +727,12 @@ function BuilderPage({
         )}
 
         {error ? <div className="form-error">{error}</div> : null}
-        <button className="primary-action build-action" disabled={!canBuild} type="button" onClick={() => void submit()}>
-          {loading ? <Loader2 className="spin" size={17} /> : <Play size={17} />}
-          Prepare download
-        </button>
+        {matchResult?.matched ? (
+          <button className="primary-action build-action" disabled={!canBuild} type="button" onClick={() => void submit()}>
+            {loading ? <Loader2 className="spin" size={17} /> : <Play size={17} />}
+            Prepare download
+          </button>
+        ) : null}
         </section>
       </div>
       {projectDetailsOpen ? (

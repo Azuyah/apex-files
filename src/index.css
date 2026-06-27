@@ -683,7 +683,7 @@ select:focus {
 
 .builder-layout {
   display: grid;
-  grid-template-columns: minmax(0, 920px);
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 
@@ -827,7 +827,7 @@ select:focus {
 
 .match-panel {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
+  grid-template-columns: 34px minmax(0, 1fr) minmax(178px, 0.24fr);
   gap: 10px;
   align-items: center;
   margin-top: 12px;
@@ -882,6 +882,38 @@ select:focus {
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.match-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  padding: 0 15px;
+  color: white;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(255, 255, 255, 0.14), transparent 56%),
+    linear-gradient(180deg, var(--accent), var(--accent-dark));
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.34);
+  font-size: 12px;
+  font-weight: 900;
+  transition:
+    transform 160ms ease,
+    filter 160ms ease,
+    opacity 160ms ease;
+}
+
+.match-action:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}
+
+.match-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
 }
 
 .option-empty {
@@ -1577,6 +1609,15 @@ select:focus {
   .builder-layout,
   .account-layout {
     grid-template-columns: 1fr;
+  }
+
+  .match-panel {
+    grid-template-columns: 34px minmax(0, 1fr);
+  }
+
+  .match-action {
+    grid-column: 1 / -1;
+    width: 100%;
   }
 
   .tune-card-grid,

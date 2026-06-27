@@ -176,6 +176,129 @@ def select_fileserver_package(
     return entries[0] if len(entries) == 1 else None
 
 
+def exact_or_strong_match(matches: list[dict[str, Any]]) -> dict[str, Any] | None:
+    return next(
+        (
+            match
+            for match in matches
+            if str(match.get("tier") or "").lower() in {"exact", "strong"}
+            or str(match.get("method") or "").upper() == "EXACT_BYTES"
+        ),
+        None,
+    )
+
+
+def preferred_match(matches: list[dict[str, Any]]) -> dict[str, Any] | None:
+    return exact_or_strong_match(matches) or (matches[0] if matches else None)
+
+
+def first_text_value(sources: list[dict[str, Any]], keys: tuple[str, ...]) -> str:
+    for source in sources:
+        for key in keys:
+            value = source.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return ""
+
+
+def option_keys_from_field(value: Any, allowed: set[str]) -> list[str]:
+    raw_items = value if isinstance(value, list) else [value]
+    keys: list[str] = []
+    for item in raw_items:
+        key = str(item or "").strip().upper()
+        if key in allowed and key not in keys:
+            keys.append(key)
+    return keys
+
+
+def version_display_text(version: dict[str, Any]) -> str:
+    return " ".join(
+        str(version.get(key) or "")
+        for key in ("name", "version_name", "label", "title", "description", "final_filename")
+    ).strip()
+
+
+def matched_option_keys(match: dict[str, Any], project: dict[str, Any]) -> tuple[list[str], list[str]]:
+    versions = available_versions(project)
+    entries = fileserver_package_entries(match, project)
+    text_values = [version_display_text(version) for version in versions]
+    text_values.extend(version_display_text(entry) for entry in entries)
+
+    base_keys: list[str] = []
+    addon_keys: list[str] = []
+
+    for entry in entries:
+        for key in option_keys_from_field(entry.get("base_tune") or entry.get("base_key") or entry.get("tune_key"), set(BASE_LABELS)):
+            if key not in base_keys:
+                base_keys.append(key)
+        for field in ("addon_keys", "addons", "option_keys", "options"):
+            for key in option_keys_from_field(entry.get(field), set(ADDON_LABELS)):
+                if key not in addon_keys:
+                    addon_keys.append(key)
+
+    for text in text_values:
+        normalized = normalize_version_text(text)
+        if not normalized:
+            continue
+        for key, tokens in BASE_LABELS.items():
+            if key not in base_keys and any(token in normalized for token in tokens):
+                base_keys.append(key)
+        for key, tokens in ADDON_LABELS.items():
+            if key not in addon_keys and any(token in normalized for token in tokens):
+                addon_keys.append(key)
+
+    return base_keys, addon_keys
+
+
+def build_match_offer(
+    match_payload: dict[str, Any],
+    *,
+    source_filename: str,
+    source_sha256: str,
+    source_size_bytes: int,
+) -> dict[str, Any]:
+    matches = [match for match in list(match_payload.get("matches") or []) if isinstance(match, dict)]
+    match = preferred_match(matches)
+    project = match.get("project") if isinstance(match, dict) else None
+    if not isinstance(project, dict):
+        return {
+            "matched": False,
+            "message": "No matching file was found.",
+            "source_filename": source_filename,
+            "source_sha256": source_sha256,
+            "source_size_bytes": source_size_bytes,
+            "base_tunes": [],
+            "addon_keys": [],
+        }
+
+    project_meta = project.get("extra_meta") if isinstance(project.get("extra_meta"), dict) else {}
+    match_meta = match.get("match_meta") if isinstance(match.get("match_meta"), dict) else {}
+    sources = [project, project_meta, match, match_meta]
+    base_keys, addon_keys = matched_option_keys(match, project)
+    matched = bool(base_keys)
+    return {
+        "matched": matched,
+        "message": "Match found." if matched else "A matching file was found, but no prepared versions are available yet.",
+        "source_filename": source_filename,
+        "source_sha256": source_sha256,
+        "source_size_bytes": source_size_bytes,
+        "project_name": first_text_value(
+            sources,
+            ("project_name", "name", "title", "original_filename", "filename"),
+        ),
+        "vehicle_label": first_text_value(
+            sources,
+            ("vehicle_label", "vehicle_name", "vehicle", "make_model", "model", "car"),
+        ),
+        "ecu_label": first_text_value(
+            sources,
+            ("ecu_label", "ecu_name", "ecu", "controller", "hardware", "ecu_type"),
+        ),
+        "base_tunes": base_keys,
+        "addon_keys": addon_keys,
+    }
+
+
 def select_versions(project: dict[str, Any], base_key: str, addon_keys: list[str]) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
     versions = available_versions(project)
     base_tokens = BASE_LABELS.get(base_key, ())
@@ -260,16 +383,8 @@ async def process_build_job(job_id: str) -> None:
 
         update_job(db, job_id, progress=28, current_stage="Checking exact matches")
         match_payload = await client.match_bin(file_path, max_matches=50)
-        matches = list(match_payload.get("matches") or [])
-        exact_match = next(
-            (
-                match
-                for match in matches
-                if str(match.get("tier") or "").lower() in {"exact", "strong"}
-                or str(match.get("method") or "").upper() == "EXACT_BYTES"
-            ),
-            None,
-        )
+        matches = [match for match in list(match_payload.get("matches") or []) if isinstance(match, dict)]
+        exact_match = exact_or_strong_match(matches)
 
         strategy = "exact_match" if exact_match else "patch_adaptation"
         if exact_match and addon_keys:

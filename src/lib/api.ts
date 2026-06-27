@@ -51,6 +51,19 @@ export type BuildJob = {
   updated_at: string;
 };
 
+export type BuildMatch = {
+  matched: boolean;
+  message: string;
+  source_filename: string;
+  source_sha256: string;
+  source_size_bytes: number;
+  project_name: string;
+  vehicle_label: string;
+  ecu_label: string;
+  base_tunes: string[];
+  addon_keys: string[];
+};
+
 export type IntegrationStatus = {
   mode: string;
   configured: boolean;
@@ -152,6 +165,12 @@ export const listProjects = () => apiFetch<Project[]>('/projects');
 export const listBuilds = () => apiFetch<{ items: BuildJob[] }>('/builds');
 export const getBuild = (jobId: string) => apiFetch<BuildJob>(`/builds/${encodeURIComponent(jobId)}`);
 export const getIntegrationStatus = () => apiFetch<IntegrationStatus>('/integrations/revtech');
+
+export async function findBuildMatch(file: File) {
+  const form = new FormData();
+  form.append('file', file);
+  return apiFetch<BuildMatch>('/builds/match', { method: 'POST', body: form });
+}
 
 export async function createBuild(input: {
   file: File;

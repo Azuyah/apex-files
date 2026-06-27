@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -14,8 +15,9 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..deps import get_current_user
 from ..models import BuildJob, Project, Subscription, User, as_utc, utcnow
-from ..schemas import BuildJobListOut, BuildJobOut
-from ..services.build_pipeline import normalize_filename_part, process_build_job, sha256_file
+from ..schemas import BuildJobListOut, BuildJobOut, BuildMatchOut
+from ..services.build_pipeline import build_match_offer, customer_safe_error, normalize_filename_part, process_build_job, sha256_file
+from ..services.revtech_client import RevtechClient
 from ..settings import get_settings
 
 router = APIRouter(prefix="/builds", tags=["builds"])
@@ -77,6 +79,50 @@ def ensure_subscription_available(subscription: Subscription | None) -> None:
 
 async def run_job(job_id: str) -> None:
     await process_build_job(job_id)
+
+
+@router.post("/match", response_model=BuildMatchOut)
+async def match_build_file(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> BuildMatchOut:
+    subscription = db.query(Subscription).filter(Subscription.user_id == user.id).one_or_none()
+    ensure_subscription_available(subscription)
+    db.add(subscription)
+    db.commit()
+
+    settings = get_settings()
+    match_root = settings.storage_path / "matches" / user.id
+    match_root.mkdir(parents=True, exist_ok=True)
+
+    source_name = normalize_filename_part(file.filename or "customer-file.bin")
+    source_path = match_root / f"{uuid.uuid4()}-{source_name}"
+    try:
+        with source_path.open("wb") as handle:
+            while chunk := await file.read(1024 * 1024):
+                handle.write(chunk)
+
+        source_size = source_path.stat().st_size
+        if source_size < 16:
+            raise HTTPException(status_code=400, detail="File is too small to process")
+
+        source_sha = sha256_file(source_path)
+        match_payload = await RevtechClient(settings).match_bin(source_path, max_matches=50)
+        return BuildMatchOut.model_validate(
+            build_match_offer(
+                match_payload,
+                source_filename=source_name,
+                source_sha256=source_sha,
+                source_size_bytes=source_size,
+            )
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=customer_safe_error(exc)) from exc
+    finally:
+        source_path.unlink(missing_ok=True)
 
 
 @router.get("", response_model=BuildJobListOut)

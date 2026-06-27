@@ -24,6 +24,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Play,
+  Search,
   Settings,
   ShieldCheck,
   SlidersHorizontal,
@@ -36,12 +37,14 @@ import {
 } from 'lucide-react';
 import {
   BuildJob,
+  BuildMatch,
   Project,
   Subscription,
   User,
   clearToken,
   createBuild,
   downloadBuild,
+  findBuildMatch,
   getBuild,
   getMe,
   getSubscription,
@@ -495,22 +498,57 @@ function BuilderPage({
 }) {
   const fileInput = useRef<HTMLInputElement | null>(null);
   const [file, setFile] = useState<File | null>(null);
-  const [baseTune, setBaseTune] = useState('STAGE1');
+  const [matchResult, setMatchResult] = useState<BuildMatch | null>(null);
+  const [baseTune, setBaseTune] = useState('');
   const [addons, setAddons] = useState<string[]>([]);
   const [vehicle, setVehicle] = useState('');
   const [ecu, setEcu] = useState('');
   const [saveProject, setSaveProject] = useState(true);
   const [projectName, setProjectName] = useState('');
+  const [matchLoading, setMatchLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [projectDetailsOpen, setProjectDetailsOpen] = useState(false);
 
+  function selectFile(nextFile: File | null) {
+    setFile(nextFile);
+    setMatchResult(null);
+    setBaseTune('');
+    setAddons([]);
+    setError('');
+  }
+
   function toggleAddon(key: string) {
+    if (!matchResult?.addon_keys.includes(key)) return;
     setAddons((current) => (current.includes(key) ? current.filter((item) => item !== key) : [...current, key]));
   }
 
-  async function submit() {
+  async function findMatch() {
     if (!file) return;
+    setError('');
+    setMatchResult(null);
+    setBaseTune('');
+    setAddons([]);
+    setMatchLoading(true);
+    try {
+      const result = await findBuildMatch(file);
+      setMatchResult(result);
+      if (result.matched) {
+        const firstBase = BASE_OPTIONS.find((option) => result.base_tunes.includes(option.key));
+        setBaseTune(firstBase?.key || '');
+        if (!vehicle.trim() && result.vehicle_label) setVehicle(result.vehicle_label);
+        if (!ecu.trim() && result.ecu_label) setEcu(result.ecu_label);
+        if (!projectName.trim() && result.project_name) setProjectName(result.project_name);
+      }
+    } catch (reason) {
+      setError(userFacingError(reason, 'Could not find a matching file. Please try again.'));
+    } finally {
+      setMatchLoading(false);
+    }
+  }
+
+  async function submit() {
+    if (!file || !matchResult?.matched || !baseTune) return;
     setError('');
     setLoading(true);
     try {
@@ -531,11 +569,18 @@ function BuilderPage({
     }
   }
 
-  const selectedBase = BASE_OPTIONS.find((option) => option.key === baseTune)?.label || 'Stage 1';
+  const availableBaseOptions = matchResult?.matched
+    ? BASE_OPTIONS.filter((option) => matchResult.base_tunes.includes(option.key))
+    : [];
+  const availableAddonOptions = matchResult?.matched
+    ? ADDON_OPTIONS.filter((option) => matchResult.addon_keys.includes(option.key))
+    : [];
+  const canBuild = Boolean(file && matchResult?.matched && baseTune && !loading && !matchLoading);
+  const selectedBase = baseTune ? BASE_OPTIONS.find((option) => option.key === baseTune)?.label || baseTune : 'Not selected';
   const currentBaseLabel = BASE_OPTION_LABELS[currentJob?.base_tune || baseTune] || selectedBase;
   const currentAddonKeys = currentJob?.requested_options?.addon_keys || addons;
   const currentAddonLabels = currentAddonKeys.map((key) => ADDON_OPTION_LABELS[key] || key).filter(Boolean);
-  const selectedOptionSummary = buildOptionSummary(baseTune, addons);
+  const selectedOptionSummary = baseTune ? buildOptionSummary(baseTune, addons) : 'Find a match to choose a file';
 
   return (
     <>
@@ -560,7 +605,7 @@ function BuilderPage({
           ref={fileInput}
           type="file"
           className="hidden-input"
-          onChange={(event) => setFile(event.target.files?.[0] || null)}
+          onChange={(event) => selectFile(event.target.files?.[0] || null)}
         />
         <button className={clsx('drop-target', file && 'has-file')} type="button" onClick={() => fileInput.current?.click()}>
           <Upload size={26} />
@@ -583,62 +628,98 @@ function BuilderPage({
           </button>
         </div>
 
-        <div className="option-block">
-          <span className="block-label">Requested tune</span>
-          <div className="tune-card-grid">
-            {BASE_OPTIONS.map((option) => (
-              <button
-                key={option.key}
-                type="button"
-                className={clsx('tune-card', baseTune === option.key && 'selected')}
-                onClick={() => setBaseTune(option.key)}
-              >
-                <span className="tune-icon">{option.icon}</span>
-                <strong>{option.label}</strong>
-                <small>{option.hint}</small>
-              </button>
-            ))}
+        <div className={clsx('match-panel', matchResult?.matched && 'matched', matchResult && !matchResult.matched && 'failed')}>
+          <div className="match-panel-icon">{matchLoading ? <Loader2 className="spin" size={16} /> : <Search size={16} />}</div>
+          <div>
+            <span>Match</span>
+            <strong>
+              {matchLoading
+                ? 'Finding available versions'
+                : matchResult
+                  ? matchResult.message
+                  : file
+                    ? 'Ready to find available versions'
+                    : 'Select a file first'}
+            </strong>
           </div>
+          <button className="secondary-action compact" disabled={!file || matchLoading || loading} type="button" onClick={() => void findMatch()}>
+            {matchLoading ? <Loader2 className="spin" size={15} /> : <Search size={15} />}
+            Find match
+          </button>
         </div>
 
-        <div className="option-block">
-          <div className="block-row">
-            <span className="block-label">Options</span>
-            <span className="selection-count">{addons.length ? `${addons.length} selected` : 'No add-ons'}</span>
-          </div>
-          <div className="addon-grid">
-            {ADDON_OPTIONS.map((option) => (
-              <button
-                key={option.key}
-                type="button"
-                className={clsx('addon-chip', addons.includes(option.key) && 'selected')}
-                onClick={() => toggleAddon(option.key)}
-              >
-                <span className="addon-state">{addons.includes(option.key) ? <CheckCircle2 size={13} /> : <Wrench size={13} />}</span>
-                <span className="addon-copy">
-                  <strong>{option.label}</strong>
-                  <small>{option.group}</small>
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
+        {matchResult?.matched ? (
+          <>
+            <div className="option-block">
+              <span className="block-label">Available tunes</span>
+              <div className="tune-card-grid">
+                {availableBaseOptions.map((option) => (
+                  <button
+                    key={option.key}
+                    type="button"
+                    className={clsx('tune-card', baseTune === option.key && 'selected')}
+                    onClick={() => setBaseTune(option.key)}
+                  >
+                    <span className="tune-icon">{option.icon}</span>
+                    <strong>{option.label}</strong>
+                    <small>{option.hint}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
 
-        <div className="build-review">
-          <div>
-            <span>Request</span>
-            <strong>{selectedOptionSummary}</strong>
+            <div className="option-block">
+              <div className="block-row">
+                <span className="block-label">Available options</span>
+                <span className="selection-count">{addons.length ? `${addons.length} selected` : 'No add-ons'}</span>
+              </div>
+              {availableAddonOptions.length ? (
+                <div className="addon-grid">
+                  {availableAddonOptions.map((option) => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      className={clsx('addon-chip', addons.includes(option.key) && 'selected')}
+                      onClick={() => toggleAddon(option.key)}
+                    >
+                      <span className="addon-state">{addons.includes(option.key) ? <CheckCircle2 size={13} /> : <Wrench size={13} />}</span>
+                      <span className="addon-copy">
+                        <strong>{option.label}</strong>
+                        <small>{option.group}</small>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="option-empty">
+                  <Info size={15} />
+                  <span>No add-ons are available for this matched file.</span>
+                </div>
+              )}
+            </div>
+
+            <div className="build-review">
+              <div>
+                <span>Request</span>
+                <strong>{selectedOptionSummary}</strong>
+              </div>
+              <div>
+                <span>Project</span>
+                <strong>{saveProject ? 'Will be saved' : 'One-time build'}</strong>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="option-empty large">
+            <Search size={17} />
+            <span>Select a file and find a match to see available tunes and options.</span>
           </div>
-          <div>
-            <span>Project</span>
-            <strong>{saveProject ? 'Will be saved' : 'One-time build'}</strong>
-          </div>
-        </div>
+        )}
 
         {error ? <div className="form-error">{error}</div> : null}
-        <button className="primary-action build-action" disabled={!file || loading} type="button" onClick={() => void submit()}>
+        <button className="primary-action build-action" disabled={!canBuild} type="button" onClick={() => void submit()}>
           {loading ? <Loader2 className="spin" size={17} /> : <Play size={17} />}
-          Start file build
+          Prepare download
         </button>
         </section>
 
@@ -687,7 +768,7 @@ function BuilderPage({
           <div className="empty-state">
             <FileCog size={34} />
             <strong>No active build</strong>
-            <span>Select a file and choose the requested options.</span>
+            <span>Select a file, find a match and prepare the download.</span>
           </div>
         )}
         </section>

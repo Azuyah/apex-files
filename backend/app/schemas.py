@@ -97,6 +97,19 @@ class BuildJobListOut(BaseModel):
     items: list[BuildJobOut]
 
 
+class BuildMatchOut(BaseModel):
+    matched: bool
+    message: str
+    source_filename: str
+    source_sha256: str
+    source_size_bytes: int
+    project_name: str = ""
+    vehicle_label: str = ""
+    ecu_label: str = ""
+    base_tunes: list[str] = Field(default_factory=list)
+    addon_keys: list[str] = Field(default_factory=list)
+
+
 class BridgeStatusOut(BaseModel):
     mode: str
     configured: bool

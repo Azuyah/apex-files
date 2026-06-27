@@ -106,6 +106,7 @@ class BuildMatchOut(BaseModel):
     project_name: str = ""
     vehicle_label: str = ""
     ecu_label: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
     base_tunes: list[str] = Field(default_factory=list)
     addon_keys: list[str] = Field(default_factory=list)
 

@@ -141,6 +141,14 @@ function softwareNumber(filename?: string) {
   );
 }
 
+function firstDisplayValue(...values: Array<string | null | undefined>) {
+  for (const value of values) {
+    const text = String(value || '').trim();
+    if (text && text.toLowerCase() !== 'pending') return text;
+  }
+  return 'Pending';
+}
+
 function ApexLogo({ compact = false }: { compact?: boolean }) {
   return (
     <div className={clsx('brand-lockup', compact && 'brand-lockup-compact')}>
@@ -702,13 +710,14 @@ function BuilderPage({
   const matched = Boolean(matchResult?.matched);
   const selectedBaseLabel = baseTune ? BASE_OPTION_LABELS[baseTune] || baseTune : 'Pending';
   const selectedAddonLabels = addons.map((key) => ADDON_OPTION_LABELS[key] || key);
-  const vehicleDisplay = matchResult?.vehicle_label || vehicle || 'Pending';
-  const ecuDisplay = matchResult?.ecu_label || ecu || 'Pending';
-  const brandDisplay = vehicleBrand(vehicleDisplay);
-  const modelDisplay = vehicleModel(vehicleDisplay);
-  const engineDisplay = engineLabel(vehicleDisplay);
-  const softwareDisplay = matched ? softwareNumber(file?.name || matchResult?.source_filename) : 'Pending';
-  const hardwareDisplay = matched ? 'Matched' : 'Pending';
+  const matchMetadata = matchResult?.metadata || {};
+  const vehicleDisplay = firstDisplayValue(matchMetadata.vehicle, matchResult?.vehicle_label, vehicle);
+  const brandDisplay = firstDisplayValue(matchMetadata.brand, vehicleBrand(vehicleDisplay));
+  const modelDisplay = firstDisplayValue(matchMetadata.model, vehicleModel(vehicleDisplay));
+  const engineDisplay = firstDisplayValue(matchMetadata.engine, matchMetadata.engine_code, engineLabel(vehicleDisplay));
+  const ecuDisplay = firstDisplayValue(matchMetadata.ecu_type, matchResult?.ecu_label, ecu);
+  const softwareDisplay = matched ? firstDisplayValue(matchMetadata.software_number, matchMetadata.calibration_id, softwareNumber(file?.name || matchResult?.source_filename)) : 'Pending';
+  const hardwareDisplay = matched ? firstDisplayValue(matchMetadata.hardware_number, 'Matched') : 'Pending';
   const matchStatusText = matchLoading
     ? 'Analyzing file'
     : matched

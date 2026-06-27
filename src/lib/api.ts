@@ -60,6 +60,20 @@ export type BuildMatch = {
   project_name: string;
   vehicle_label: string;
   ecu_label: string;
+  metadata?: {
+    vehicle?: string;
+    brand?: string;
+    model?: string;
+    generation?: string;
+    engine?: string;
+    engine_code?: string;
+    ecu_type?: string;
+    software_number?: string;
+    hardware_number?: string;
+    ecu_producer?: string;
+    ecu_build?: string;
+    calibration_id?: string;
+  };
   base_tunes: string[];
   addon_keys: string[];
 };

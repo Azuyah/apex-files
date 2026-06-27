@@ -201,6 +201,165 @@ def first_text_value(sources: list[dict[str, Any]], keys: tuple[str, ...]) -> st
     return ""
 
 
+def clean_metadata_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(int(value)) if float(value).is_integer() else str(value)
+    return str(value).strip()
+
+
+def lookup_path(source: dict[str, Any], path: str) -> Any:
+    current: Any = source
+    for part in path.split("."):
+        if not isinstance(current, dict):
+            return None
+        current = current.get(part)
+    return current
+
+
+def first_path_text(sources: list[dict[str, Any]], paths: tuple[str, ...]) -> str:
+    for source in sources:
+        for path in paths:
+            text = clean_metadata_text(lookup_path(source, path))
+            if text:
+                return text
+    return ""
+
+
+def add_metadata_source(sources: list[dict[str, Any]], value: Any) -> None:
+    if isinstance(value, dict):
+        sources.append(value)
+
+
+def add_metadata_sources_from_entry(sources: list[dict[str, Any]], entry: Any, depth: int = 0) -> None:
+    if not isinstance(entry, dict) or depth > 5:
+        return
+    add_metadata_source(sources, entry)
+    for key in (
+        "vehicle_variant",
+        "ecu_software",
+        "identified",
+        "metadata",
+        "extra_meta",
+        "match_meta",
+        "fileserver_library_match",
+        "fileserver_modified_match",
+        "tuning_variant",
+        "package_variant",
+        "base_file",
+        "final_file",
+    ):
+        nested = entry.get(key)
+        add_metadata_source(sources, nested)
+        if isinstance(nested, dict):
+            add_metadata_sources_from_entry(sources, nested, depth + 1)
+    for list_key in ("package_variants", "tuning_variants", "file_candidates", "candidates", "tuning_variant_candidates"):
+        raw_items = entry.get(list_key)
+        if isinstance(raw_items, list):
+            for item in raw_items:
+                add_metadata_sources_from_entry(sources, item, depth + 1)
+
+
+def metadata_sources_for_match(match_payload: dict[str, Any], matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    sources: list[dict[str, Any]] = []
+    for list_key in ("file_candidates", "candidates", "tuning_variant_candidates"):
+        raw_items = match_payload.get(list_key)
+        if isinstance(raw_items, list):
+            for item in raw_items:
+                add_metadata_sources_from_entry(sources, item)
+    for match in matches:
+        add_metadata_sources_from_entry(sources, match)
+        project = match.get("project") if isinstance(match.get("project"), dict) else None
+        if project:
+            add_metadata_sources_from_entry(sources, project)
+    add_metadata_source(sources, match_payload.get("identified"))
+    add_metadata_source(sources, match_payload.get("bin"))
+    return sources
+
+
+def join_non_duplicate(parts: list[str]) -> str:
+    output: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        text = clean_metadata_text(part)
+        if not text:
+            continue
+        key = re.sub(r"[^a-z0-9]+", "", text.lower())
+        if key and key in seen:
+            continue
+        if any(key and key in re.sub(r"[^a-z0-9]+", "", existing.lower()) for existing in output):
+            continue
+        seen.add(key)
+        output.append(text)
+    return " ".join(output).strip()
+
+
+def build_engine_display(sources: list[dict[str, Any]]) -> str:
+    base = first_path_text(
+        sources,
+        (
+            "engine_unfiltered",
+            "engine_name",
+            "selected_engine",
+            "engine",
+            "motorcode",
+            "engine_code",
+            "engine_type",
+        ),
+    )
+    ps = first_path_text(sources, ("output_ps", "power_output_oem", "power_hp", "target_power_hp"))
+    kw = first_path_text(sources, ("output_kw", "power_kw"))
+    torque = first_path_text(sources, ("max_torque_nm", "target_torque_nm"))
+    power_bits = []
+    if ps:
+        power_bits.append(f"{ps} HP")
+    if kw:
+        power_bits.append(f"{kw} kW")
+    if torque:
+        power_bits.append(f"{torque} Nm")
+    if power_bits:
+        return f"{base} ({' / '.join(power_bits)})" if base else " / ".join(power_bits)
+    return base
+
+
+def build_ecu_display(sources: list[dict[str, Any]]) -> str:
+    explicit = first_path_text(sources, ("ecu", "ecu_type", "ecu_exact", "ecu_family", "controller", "ecu_name"))
+    producer = first_path_text(sources, ("producer", "ecu_producer", "vendor"))
+    build = first_path_text(sources, ("build", "ecu_build"))
+    combined = join_non_duplicate([producer, build])
+    return combined or explicit
+
+
+def build_match_metadata(match_payload: dict[str, Any], matches: list[dict[str, Any]]) -> dict[str, str]:
+    sources = metadata_sources_for_match(match_payload, matches)
+    brand = first_path_text(sources, ("brand", "vehicle_brand", "vehicle_producer", "make", "manufacturer"))
+    model = first_path_text(sources, ("model", "vehicle_model", "series", "engine_model"))
+    generation = first_path_text(sources, ("generation", "vehicle_generation"))
+    engine_code = first_path_text(sources, ("engine_code", "motorcode", "selected_vehicle_engine_code", "engine_type"))
+    ecu_type = build_ecu_display(sources)
+    software_number = first_path_text(sources, ("software", "software_number", "sw_id", "sw", "ecu_nr_ecu", "cal_id"))
+    hardware_number = first_path_text(sources, ("hardware_number", "hw_id", "hw", "ecu_nr_prod"))
+    engine = build_engine_display(sources)
+    vehicle = first_path_text(sources, ("vehicle_label", "vehicle_name", "vehicle", "make_model", "car"))
+    if not vehicle:
+        vehicle = join_non_duplicate([brand, model, generation])
+    return {
+        "vehicle": vehicle,
+        "brand": brand,
+        "model": model,
+        "generation": generation,
+        "engine": engine,
+        "engine_code": engine_code,
+        "ecu_type": ecu_type,
+        "software_number": software_number,
+        "hardware_number": hardware_number,
+        "ecu_producer": first_path_text(sources, ("producer", "ecu_producer", "vendor")),
+        "ecu_build": first_path_text(sources, ("build", "ecu_build")),
+        "calibration_id": first_path_text(sources, ("cal_id", "checksum_ref")),
+    }
+
+
 def option_keys_from_field(value: Any, allowed: set[str]) -> list[str]:
     raw_items = value if isinstance(value, list) else [value]
     keys: list[str] = []
@@ -261,12 +420,17 @@ def build_match_offer(
     match = preferred_match(matches)
     project = match.get("project") if isinstance(match, dict) else None
     if not isinstance(project, dict):
+        metadata = build_match_metadata(match_payload, matches)
         return {
             "matched": False,
             "message": "No matching file was found.",
             "source_filename": source_filename,
             "source_sha256": source_sha256,
             "source_size_bytes": source_size_bytes,
+            "project_name": "",
+            "vehicle_label": metadata.get("vehicle", ""),
+            "ecu_label": metadata.get("ecu_type", ""),
+            "metadata": metadata,
             "base_tunes": [],
             "addon_keys": [],
         }
@@ -276,6 +440,15 @@ def build_match_offer(
     sources = [project, project_meta, match, match_meta]
     base_keys, addon_keys = matched_option_keys(match, project)
     matched = bool(base_keys)
+    metadata = build_match_metadata(match_payload, matches)
+    vehicle_label = metadata.get("vehicle") or first_text_value(
+        sources,
+        ("vehicle_label", "vehicle_name", "vehicle", "make_model", "model", "car"),
+    )
+    ecu_label = metadata.get("ecu_type") or first_text_value(
+        sources,
+        ("ecu_label", "ecu_name", "ecu", "controller", "hardware", "ecu_type"),
+    )
     return {
         "matched": matched,
         "message": "Match found." if matched else "A matching file was found, but no prepared versions are available yet.",
@@ -286,14 +459,9 @@ def build_match_offer(
             sources,
             ("project_name", "name", "title", "original_filename", "filename"),
         ),
-        "vehicle_label": first_text_value(
-            sources,
-            ("vehicle_label", "vehicle_name", "vehicle", "make_model", "model", "car"),
-        ),
-        "ecu_label": first_text_value(
-            sources,
-            ("ecu_label", "ecu_name", "ecu", "controller", "hardware", "ecu_type"),
-        ),
+        "vehicle_label": vehicle_label,
+        "ecu_label": ecu_label,
+        "metadata": metadata,
         "base_tunes": base_keys,
         "addon_keys": addon_keys,
     }

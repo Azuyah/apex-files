@@ -1,18 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, FormEvent, ReactNode } from 'react';
+import type { CSSProperties, DragEvent, FormEvent, ReactNode } from 'react';
 import clsx from 'clsx';
 import {
   Activity,
   Bell,
   Bolt,
+  Car,
+  ChevronDown,
+  ChevronRight,
   CheckCircle2,
   CircleAlert,
+  Cpu,
+  Crown,
   Download,
+  Eye,
   FileCog,
   FileText,
   FolderClock,
   FolderPlus,
   Gauge,
+  Headphones,
+  History,
+  Home,
   Info,
   Leaf,
   Loader2,
@@ -23,13 +32,14 @@ import {
   Minus,
   PanelLeftClose,
   PanelLeftOpen,
-  Play,
   Search,
   Settings,
   ShieldCheck,
   SlidersHorizontal,
   Square,
+  Star,
   Upload,
+  UserCircle,
   UserPlus,
   Wrench,
   X,
@@ -105,10 +115,30 @@ function formatPackageLabel(subscription: Subscription | null) {
   return `${remaining} files remaining`;
 }
 
-function buildOptionSummary(baseTune: string, addonKeys: string[]) {
-  const base = BASE_OPTION_LABELS[baseTune] || 'Stage 1';
-  if (!addonKeys.length) return base;
-  return `${base} + ${addonKeys.map((key) => ADDON_OPTION_LABELS[key] || key).join(', ')}`;
+function vehicleBrand(value: string) {
+  if (!value || value === 'Pending') return 'Pending';
+  return value.split(/\s+/)[0] || value;
+}
+
+function vehicleModel(value: string) {
+  if (!value || value === 'Pending') return 'Pending';
+  const [, ...rest] = value.split(/\s+/);
+  return rest.join(' ') || value;
+}
+
+function engineLabel(value: string) {
+  if (!value || value === 'Pending') return 'Pending';
+  return value.match(/\b\d(?:\.\d)?\s?(?:TDI|TFSI|TSI|CDI|HDI|D|I)\b/i)?.[0] || 'Matched file';
+}
+
+function softwareNumber(filename?: string) {
+  if (!filename) return 'Pending';
+  const withoutExtension = filename.replace(/\.[^.]+$/, '');
+  return (
+    withoutExtension.match(/\b[A-Z0-9]{2,}\d{3,}[A-Z0-9]*\b/i)?.[0]?.toUpperCase() ||
+    withoutExtension.split(/[_\-\s]+/).find((part) => /\d{4,}/.test(part)) ||
+    'Matched'
+  );
 }
 
 function ApexLogo({ compact = false }: { compact?: boolean }) {
@@ -151,18 +181,43 @@ function WindowActions() {
   );
 }
 
-function TopChrome({ user }: { user: User | null }) {
+function TopChrome({ user, subscription }: { user: User | null; subscription?: Subscription | null }) {
+  if (!user) {
+    return (
+      <>
+        <div className="app-drag drag-strip" />
+        <div className="top-chrome login-chrome">
+          <WindowActions />
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
-      <div className="app-drag drag-strip" />
-      <div className="top-chrome">
-        {user ? (
-          <div className="top-session">
-            <span>{user.company_name || user.display_name || user.email}</span>
+      <div className="app-drag app-header-drag" />
+      <header className="app-header app-no-drag">
+        <div className="header-brand">
+          <ApexLogo />
+          <div className="header-divider" />
+          <span>Professional ECU Calibration. Unlimited Potential.</span>
+        </div>
+        <div className="header-actions">
+          <div className="header-plan">
+            <Crown size={28} />
+            <div>
+              <strong>{subscription?.plan_name || 'Pro unlimited'}</strong>
+              <span>{subscription && subscription.monthly_file_limit < 9999 ? formatPackageLabel(subscription) : 'Unlimited Monthly Plan'}</span>
+            </div>
+            <i />
           </div>
-        ) : null}
-        <WindowActions />
-      </div>
+          <div className="header-account">
+            <UserCircle size={30} />
+            <ChevronDown size={18} />
+          </div>
+          <WindowActions />
+        </div>
+      </header>
     </>
   );
 }
@@ -304,33 +359,39 @@ function Sidebar({
   onChange,
   onLogout,
   onToggleCollapsed,
+  subscription,
 }: {
   active: PageKey;
   collapsed: boolean;
   onChange: (page: PageKey) => void;
   onLogout: () => void;
   onToggleCollapsed: () => void;
+  subscription: Subscription | null;
 }) {
-  const items: { key: PageKey; label: string; icon: ReactNode }[] = [
-    { key: 'builder', label: 'File builder', icon: <FileCog size={17} /> },
-    { key: 'projects', label: 'Projects', icon: <FolderClock size={17} /> },
-    { key: 'account', label: 'Account', icon: <ShieldCheck size={17} /> },
+  const items: { key: string; page: PageKey; label: string; icon: ReactNode; activeWhen?: PageKey; accent?: boolean }[] = [
+    { key: 'dashboard', page: 'builder', label: 'Dashboard', icon: <Home size={20} />, accent: true },
+    { key: 'file-service', page: 'builder', label: 'File Service', icon: <FileCog size={20} />, activeWhen: 'builder' },
+    { key: 'my-files', page: 'projects', label: 'My Files', icon: <FolderClock size={20} />, activeWhen: 'projects' },
+    { key: 'downloads', page: 'projects', label: 'Downloads', icon: <Download size={20} /> },
+    { key: 'history', page: 'projects', label: 'History', icon: <History size={20} /> },
+    { key: 'favorites', page: 'projects', label: 'Favorites', icon: <Star size={20} /> },
+    { key: 'support', page: 'account', label: 'Support', icon: <Headphones size={20} /> },
+    { key: 'settings', page: 'account', label: 'Settings', icon: <Settings size={20} />, activeWhen: 'account' },
   ];
+  const planName = subscription?.monthly_file_limit && subscription.monthly_file_limit < 9999 ? subscription.plan_name : 'Unlimited';
+  const renewDate = subscription ? new Date(subscription.period_ends_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : 'Loading';
 
   return (
     <aside className={clsx('sidebar', collapsed && 'collapsed')}>
       <div className="sidebar-inner">
-        <div className="sidebar-brand">
-          <ApexLogo compact={collapsed} />
-        </div>
         <nav>
           {items.map((item) => (
             <button
               key={item.key}
               type="button"
-              className={clsx(active === item.key && 'active')}
+              className={clsx(item.activeWhen === active && 'active', item.accent && 'accent')}
               title={collapsed ? item.label : undefined}
-              onClick={() => onChange(item.key)}
+              onClick={() => onChange(item.page)}
             >
               {item.icon}
               <span>{item.label}</span>
@@ -338,6 +399,17 @@ function Sidebar({
           ))}
         </nav>
         <div className="sidebar-bottom">
+          <div className="credits-card">
+            <span>Credits</span>
+            <strong>{planName}</strong>
+            <small>Renews: {renewDate}</small>
+            <button type="button" onClick={() => onChange('account')}>Manage Plan</button>
+          </div>
+          <div className="sidebar-version">
+            <span>v0.1.0</span>
+            <i />
+            <span>Up to date</span>
+          </div>
           <button type="button" className="sidebar-collapse" onClick={onToggleCollapsed} title={collapsed ? 'Expand menu' : undefined}>
             {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
             <span>{collapsed ? 'Expand menu' : 'Collapse menu'}</span>
@@ -363,6 +435,25 @@ function StatusBadge({ status }: { status: string }) {
       {ready ? <CheckCircle2 size={13} /> : failed ? <CircleAlert size={13} /> : <Activity size={13} />}
       {label}
     </span>
+  );
+}
+
+function StepTitle({ index, title }: { index: number; title: string }) {
+  return (
+    <div className="step-title">
+      <span className="step-index">{index}</span>
+      <strong>{title}</strong>
+    </div>
+  );
+}
+
+function MatchInfoRow({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <div className="match-info-row">
+      <span className="match-info-icon">{icon}</span>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
   );
 }
 
@@ -545,6 +636,11 @@ function BuilderPage({
     setError('');
   }
 
+  function handleFileDrop(event: DragEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    selectFile(event.dataTransfer.files?.[0] || null);
+  }
+
   function toggleAddon(key: string) {
     if (!matchResult?.addon_keys.includes(key)) return;
     setAddons((current) => (current.includes(key) ? current.filter((item) => item !== key) : [...current, key]));
@@ -603,137 +699,248 @@ function BuilderPage({
     ? ADDON_OPTIONS.filter((option) => matchResult.addon_keys.includes(option.key))
     : [];
   const canBuild = Boolean(file && matchResult?.matched && baseTune && !loading && !matchLoading);
-  const selectedOptionSummary = baseTune ? buildOptionSummary(baseTune, addons) : 'Find a match to choose a file';
+  const matched = Boolean(matchResult?.matched);
+  const selectedBaseLabel = baseTune ? BASE_OPTION_LABELS[baseTune] || baseTune : 'Pending';
+  const selectedAddonLabels = addons.map((key) => ADDON_OPTION_LABELS[key] || key);
+  const vehicleDisplay = matchResult?.vehicle_label || vehicle || 'Pending';
+  const ecuDisplay = matchResult?.ecu_label || ecu || 'Pending';
+  const brandDisplay = vehicleBrand(vehicleDisplay);
+  const modelDisplay = vehicleModel(vehicleDisplay);
+  const engineDisplay = engineLabel(vehicleDisplay);
+  const softwareDisplay = matched ? softwareNumber(file?.name || matchResult?.source_filename) : 'Pending';
+  const hardwareDisplay = matched ? 'Matched' : 'Pending';
+  const matchStatusText = matchLoading
+    ? 'Analyzing file'
+    : matched
+      ? 'Match confirmed'
+      : matchResult
+        ? 'No matching version found'
+        : file
+          ? 'Ready to match'
+          : 'Choose a file to start';
 
   return (
     <>
       <div className="builder-layout">
-        <section className="workspace-panel builder-panel">
-        <div className="section-heading">
-          <div>
-            <span>Upload file</span>
-            <h2>Build a customer file</h2>
-          </div>
-          <div className="builder-heading-actions">
-            {currentJob ? (
-              <button className="secondary-action compact" type="button" onClick={onOpenDelivery}>
-                <Activity size={15} />
-                Delivery
-              </button>
+        <div className="file-service-grid">
+          <section className="service-card upload-service-card">
+            <StepTitle index={1} title="Upload original ECU file" />
+            <input
+              ref={fileInput}
+              type="file"
+              className="hidden-input"
+              onChange={(event) => selectFile(event.target.files?.[0] || null)}
+            />
+            <button
+              className={clsx('ecu-drop-target', file && 'has-file')}
+              type="button"
+              onClick={() => fileInput.current?.click()}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={handleFileDrop}
+            >
+              <span className="drop-cloud">
+                <Upload size={34} />
+              </span>
+              <strong>Drag & drop your ECU file here</strong>
+              <span>or</span>
+              <em>Browse Files</em>
+              <small>Supported formats: .bin .hex .ori .dat .ecu</small>
+            </button>
+            {file ? (
+              <div className="file-strip">
+                <FileText size={17} />
+                <div>
+                  <strong>{file.name}</strong>
+                  <span>{formatFileSize(file.size)}</span>
+                </div>
+                <CheckCircle2 size={18} />
+              </div>
             ) : null}
-            <button className="secondary-action compact" type="button" onClick={() => setProjectDetailsOpen(true)}>
-              <FolderPlus size={15} />
-              Project details
-            </button>
-            <button className="icon-action" type="button" onClick={() => fileInput.current?.click()} title="Select file">
-              <Upload size={18} />
-            </button>
-          </div>
-        </div>
-        <input
-          ref={fileInput}
-          type="file"
-          className="hidden-input"
-          onChange={(event) => selectFile(event.target.files?.[0] || null)}
-        />
-        <button className={clsx('drop-target', file && 'has-file')} type="button" onClick={() => fileInput.current?.click()}>
-          <Upload size={26} />
-          <strong>{file ? file.name : 'Select file'}</strong>
-          <span>{file ? `${formatFileSize(file.size)} selected` : 'BIN, ORI, MOD or tool export'}</span>
-        </button>
+          </section>
 
-        <div className={clsx('match-panel', matchResult?.matched && 'matched', matchResult && !matchResult.matched && 'failed')}>
-          <div className="match-panel-icon">{matchLoading ? <Loader2 className="spin" size={16} /> : <Search size={16} />}</div>
-          <div>
-            <span>Match</span>
-            <strong>
-              {matchLoading
-                ? 'Finding available versions'
-                : matchResult
-                  ? matchResult.message
-                  : file
-                    ? 'Ready to find available versions'
-                    : 'Select a file first'}
-            </strong>
-          </div>
-          <button className="match-action" disabled={!file || matchLoading || loading} type="button" onClick={() => void findMatch()}>
-            {matchLoading ? <Loader2 className="spin" size={15} /> : <Search size={15} />}
-            Find match
-          </button>
-        </div>
-
-        {matchResult?.matched ? (
-          <>
-            <div className="option-block">
-              <span className="block-label">Available tunes</span>
-              <div className="tune-card-grid">
-                {availableBaseOptions.map((option) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    className={clsx('tune-card', baseTune === option.key && 'selected')}
-                    onClick={() => setBaseTune(option.key)}
-                  >
-                    <span className="tune-icon">{option.icon}</span>
-                    <strong>{option.label}</strong>
-                    <small>{option.hint}</small>
-                  </button>
-                ))}
+          <section className="service-card match-service-card">
+            <StepTitle index={2} title="Match file" />
+            <div className={clsx('scanner-orb', matchLoading && 'scanning', matched && 'confirmed')} aria-hidden="true">
+              <span className="scanner-ring one" />
+              <span className="scanner-ring two" />
+              <span className="scanner-core">
+                {matchLoading ? <Loader2 className="spin" size={28} /> : matched ? <CheckCircle2 size={29} /> : <Search size={29} />}
+              </span>
+            </div>
+            <p className="match-instruction">Click the button below to analyze and match your file.</p>
+            <button className="match-action match-action-large" disabled={!file || matchLoading || loading} type="button" onClick={() => void findMatch()}>
+              {matchLoading ? <Loader2 className="spin" size={16} /> : <Search size={16} />}
+              Match file
+              <ChevronRight size={17} />
+            </button>
+            <div className={clsx('match-feedback', matched && 'confirmed', matchResult && !matched && 'failed')}>
+              {matched ? <CheckCircle2 size={15} /> : matchResult && !matched ? <CircleAlert size={15} /> : <Info size={15} />}
+              <div>
+                <span>{matched ? 'File matched successfully' : matchStatusText}</span>
+                {matched ? <small>Analysis completed</small> : null}
               </div>
             </div>
+          </section>
 
-            <div className="option-block">
-              <div className="block-row">
-                <span className="block-label">Available options</span>
-                <span className="selection-count">{addons.length ? `${addons.length} selected` : 'No add-ons'}</span>
-              </div>
-              {availableAddonOptions.length ? (
-                <div className="addon-grid">
-                  {availableAddonOptions.map((option) => (
+          <section className="service-card results-service-card">
+            <div className="card-title-row">
+              <StepTitle index={3} title="File match results" />
+              <span className={clsx('result-chip', matched && 'confirmed', matchResult && !matched && 'failed')}>
+                {matched ? 'Match confirmed' : matchResult ? 'No match' : 'Waiting'}
+              </span>
+            </div>
+            <div className="match-info-list">
+              <MatchInfoRow icon={<Car size={15} />} label="Vehicle" value={vehicleDisplay} />
+              <MatchInfoRow icon={<Car size={15} />} label="Brand" value={brandDisplay} />
+              <MatchInfoRow icon={<Car size={15} />} label="Model" value={modelDisplay} />
+              <MatchInfoRow icon={<Gauge size={15} />} label="Engine" value={engineDisplay} />
+              <MatchInfoRow icon={<Cpu size={15} />} label="ECU Type" value={ecuDisplay} />
+              <MatchInfoRow icon={<FileText size={15} />} label="Software Number" value={softwareDisplay} />
+              <MatchInfoRow icon={<Cpu size={15} />} label="Hardware Number" value={hardwareDisplay} />
+              <MatchInfoRow icon={<FileText size={15} />} label="File status" value={matched ? 'Original / stock' : 'Pending'} />
+            </div>
+            <button className="secondary-action compact details-action" type="button" onClick={() => setProjectDetailsOpen(true)}>
+              View details
+              <Eye size={15} />
+            </button>
+          </section>
+
+          <section className={clsx('service-card tuning-service-card', !matched && 'locked')}>
+            <StepTitle index={4} title="Select tuning version & options" />
+            {matched ? (
+              <div className="tuning-config">
+                <div className="stage-list">
+                  <span className="block-label">Stage / version</span>
+                  {availableBaseOptions.map((option) => (
                     <button
                       key={option.key}
                       type="button"
-                      className={clsx('addon-chip', addons.includes(option.key) && 'selected')}
-                      onClick={() => toggleAddon(option.key)}
+                      className={clsx('stage-option', baseTune === option.key && 'selected')}
+                      onClick={() => setBaseTune(option.key)}
                     >
-                      <span className="addon-state">{addons.includes(option.key) ? <CheckCircle2 size={13} /> : <Wrench size={13} />}</span>
-                      <span className="addon-copy">
+                      <span>{baseTune === option.key ? <CheckCircle2 size={16} /> : option.icon}</span>
+                      <div>
                         <strong>{option.label}</strong>
-                        <small>{option.group}</small>
-                      </span>
+                        <small>{option.hint}</small>
+                      </div>
                     </button>
                   ))}
                 </div>
-              ) : (
-                <div className="option-empty">
-                  <Info size={15} />
-                  <span>No add-ons are available for this matched file.</span>
+                <div className="options-list">
+                  <div className="block-row">
+                    <span className="block-label">Additional options</span>
+                    <span className="selection-count">{addons.length ? `${addons.length} selected` : 'None selected'}</span>
+                  </div>
+                  {availableAddonOptions.length ? (
+                    <div className="addon-option-grid">
+                      {availableAddonOptions.map((option) => (
+                        <button
+                          key={option.key}
+                          type="button"
+                          className={clsx('addon-tile', addons.includes(option.key) && 'selected')}
+                          onClick={() => toggleAddon(option.key)}
+                        >
+                          <span className="addon-state">{addons.includes(option.key) ? <CheckCircle2 size={14} /> : <Wrench size={14} />}</span>
+                          <span className="addon-copy">
+                            <strong>{option.label}</strong>
+                            <small>{option.group}</small>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="option-empty inline-empty">
+                      <Info size={15} />
+                      <span>No add-ons are available for this matched file.</span>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="locked-card-message">
+                <Search size={18} />
+                <span>Find a match to unlock available versions and options.</span>
+              </div>
+            )}
+          </section>
 
-            <div className="build-review">
-              <div>
-                <span>Request</span>
-                <strong>{selectedOptionSummary}</strong>
+          <section className="service-card summary-service-card">
+            <StepTitle index={5} title="Summary & download" />
+            <div className="selected-summary">
+              <span>Selected summary</span>
+              <ul>
+                <li>
+                  <CheckCircle2 size={14} />
+                  <strong>{selectedBaseLabel}</strong>
+                  <small>{baseTune === 'STAGE1' ? '~180 HP / ~380 Nm' : baseTune === 'STAGE2' ? '~200 HP / ~420 Nm' : ''}</small>
+                </li>
+                {selectedAddonLabels.length ? (
+                  selectedAddonLabels.map((label) => (
+                    <li key={label}>
+                      <CheckCircle2 size={14} />
+                      <strong>{label}</strong>
+                      <small>{ADDON_OPTIONS.find((option) => option.label === label)?.group || ''}</small>
+                    </li>
+                  ))
+                ) : (
+                  <li>
+                    <CheckCircle2 size={14} />
+                    <strong>{matched ? 'No additional options' : 'Pending match'}</strong>
+                    <small>{file?.name || ''}</small>
+                  </li>
+                )}
+              </ul>
+              <div className="summary-meta">
+                <span>Estimated File Size:</span>
+                <strong>{file ? formatFileSize(file.size) : 'Pending'}</strong>
+                <span>Package Cost:</span>
+                <strong>Included</strong>
+                <span>Delivery:</span>
+                <strong>{matched ? 'Instant Download' : 'Pending'}</strong>
               </div>
             </div>
-          </>
-        ) : (
-          <div className="option-empty large">
-            <Search size={17} />
-            <span>Select a file and find a match to see available tunes and options.</span>
-          </div>
-        )}
+            {error ? <div className="form-error">{error}</div> : null}
+            {matched ? (
+              <button className="primary-action download-action" disabled={!canBuild} type="button" onClick={() => void submit()}>
+                {loading ? <Loader2 className="spin" size={17} /> : <Download size={17} />}
+                Download file
+              </button>
+            ) : (
+              <div className="summary-waiting">
+                <Info size={15} />
+                <span>Download appears after a match is confirmed.</span>
+              </div>
+            )}
+            <div className="safe-note">
+              <ShieldCheck size={15} />
+              <span>Files are checked and prepared securely.</span>
+            </div>
+            {currentJob ? (
+              <button className="secondary-action compact delivery-action" type="button" onClick={onOpenDelivery}>
+                <Activity size={15} />
+                Open delivery
+              </button>
+            ) : null}
+          </section>
 
-        {error ? <div className="form-error">{error}</div> : null}
-        {matchResult?.matched ? (
-          <button className="primary-action build-action" disabled={!canBuild} type="button" onClick={() => void submit()}>
-            {loading ? <Loader2 className="spin" size={17} /> : <Play size={17} />}
-            Prepare download
-          </button>
-        ) : null}
-        </section>
+          <div className="service-proof-row">
+            <div>
+              <LockKeyhole size={17} />
+              <strong>Secure workspace</strong>
+              <span>Files stay inside your account.</span>
+            </div>
+            <div>
+              <Zap size={17} />
+              <strong>Fast delivery</strong>
+              <span>Matched files are prepared immediately.</span>
+            </div>
+            <div>
+              <ShieldCheck size={17} />
+              <strong>Powered by Revtech</strong>
+              <span>Apex experience, Revtech file data.</span>
+            </div>
+          </div>
+        </div>
       </div>
       {projectDetailsOpen ? (
         <ProjectDetailsModal
@@ -888,7 +1095,7 @@ function AccountPage({ subscription, user }: { subscription: Subscription | null
 function pageTitle(page: PageKey) {
   if (page === 'projects') return 'Projects';
   if (page === 'account') return 'Account';
-  return 'File builder';
+  return 'File service';
 }
 
 export default function App() {
@@ -1002,25 +1209,28 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <TopChrome user={user} />
+      <TopChrome user={user} subscription={subscription} />
       <Sidebar
         active={activePage}
         collapsed={sidebarCollapsed}
         onChange={setActivePage}
         onLogout={logout}
         onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
+        subscription={subscription}
       />
       <main className="workspace">
-        <div className="workspace-heading">
-          <div>
-            <span>Apex workspace</span>
-            <h1>{pageTitle(activePage)}</h1>
+        {activePage !== 'builder' ? (
+          <div className="workspace-heading">
+            <div>
+              <span>Apex workspace</span>
+              <h1>{pageTitle(activePage)}</h1>
+            </div>
+            <div className="package-pill">
+              <Gauge size={15} />
+              {filesLabel}
+            </div>
           </div>
-          <div className="package-pill">
-            <Gauge size={15} />
-            {filesLabel}
-          </div>
-        </div>
+        ) : null}
         {page}
       </main>
       {deliveryOpen && currentJob ? <BuildDeliveryModal job={currentJob} onClose={() => setDeliveryOpen(false)} /> : null}

@@ -1,5 +1,7 @@
 param(
-  [string]$Configuration = "Release"
+  [string]$Configuration = "Release",
+  [string]$PayloadSourceDir = "",
+  [string]$OutputDir = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,14 +23,22 @@ $releaseVersion4 = if ($releaseVersionParts.Count -eq 4) {
 }
 
 $project = Join-Path $root "build\ApexInstaller\ApexInstaller.csproj"
-$distDir = Join-Path $root "dist"
-$payloadSourceDir = Join-Path $distDir "win-unpacked"
+$distDir = if ([string]::IsNullOrWhiteSpace($OutputDir)) {
+  Join-Path $root "dist"
+} else {
+  [System.IO.Path]::GetFullPath($OutputDir)
+}
+$payloadSourceDir = if ([string]::IsNullOrWhiteSpace($PayloadSourceDir)) {
+  Join-Path $distDir "win-unpacked"
+} else {
+  [System.IO.Path]::GetFullPath($PayloadSourceDir)
+}
 $publishDir = Join-Path $distDir "_apex-bootstrapper"
 $payloadDir = Join-Path $root "build\ApexInstaller\Payload"
 $payloadZip = Join-Path $payloadDir "payload.zip"
 
 if (-not (Test-Path $payloadSourceDir)) {
-  throw "No win-unpacked payload found in dist. Run npm run build:desktop:dir first."
+  throw "No win-unpacked payload found at $payloadSourceDir. Run npm run build:desktop:dir first or pass -PayloadSourceDir."
 }
 
 $payloadExe = Join-Path $payloadSourceDir "Apex Files.exe"
@@ -41,6 +51,8 @@ if (Test-Path $payloadDir) {
 }
 New-Item -ItemType Directory -Force $payloadDir | Out-Null
 Compress-Archive -Path (Join-Path $payloadSourceDir "*") -DestinationPath $payloadZip -CompressionLevel Optimal -Force
+
+New-Item -ItemType Directory -Force $distDir | Out-Null
 
 if (Test-Path $publishDir) {
   Remove-Item -Recurse -Force $publishDir

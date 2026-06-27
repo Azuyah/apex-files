@@ -455,34 +455,59 @@ function ProjectDetailsModal({
   );
 }
 
-function BuildCompleteModal({ job, onClose }: { job: BuildJob; onClose: () => void }) {
+function BuildDeliveryModal({ job, onClose }: { job: BuildJob; onClose: () => void }) {
+  const ready = job.status === 'ready';
+  const failed = job.status === 'failed';
+  const addonLabels = (job.requested_options?.addon_keys || []).map((key) => ADDON_OPTION_LABELS[key] || key).filter(Boolean);
+
   return (
-    <ModalShell eyebrow="Delivery" title="File ready" icon={<CheckCircle2 size={18} />} onClose={onClose}>
+    <ModalShell
+      eyebrow="Delivery"
+      title={ready ? 'File ready' : failed ? 'Needs attention' : 'Preparing file'}
+      icon={ready ? <CheckCircle2 size={18} /> : failed ? <CircleAlert size={18} /> : <Loader2 className="spin" size={18} />}
+      onClose={onClose}
+    >
       <div className="finished-summary">
         <div>
-          <span>Completed file</span>
+          <span>{ready ? 'Completed file' : 'Source file'}</span>
           <strong>{job.result_filename || job.source_filename}</strong>
         </div>
         <div>
-          <span>Source</span>
-          <strong>{job.source_filename}</strong>
+          <span>Status</span>
+          <strong>{job.current_stage}</strong>
         </div>
         <div>
           <span>Tune</span>
-          <strong>{buildOptionSummary(job.base_tune, job.requested_options?.addon_keys || [])}</strong>
+          <strong>{BASE_OPTION_LABELS[job.base_tune] || job.base_tune}</strong>
+        </div>
+        <div>
+          <span>Options</span>
+          <strong>{addonLabels.length ? addonLabels.join(', ') : 'None'}</strong>
         </div>
       </div>
-      <div className="success-panel">
-        <CheckCircle2 size={18} />
-        <span>Your file is ready to download.</span>
+      <div className="delivery-modal-progress">
+        <div className="job-title-row">
+          <span>{failed ? 'Stopped' : ready ? 'Complete' : 'Working'}</span>
+          <strong>{job.progress}%</strong>
+        </div>
+        <div className="progress-bar delivery-progress">
+          <span style={{ width: `${job.progress}%` }} />
+        </div>
       </div>
+      {job.error_message ? <div className="form-error">{job.error_message}</div> : null}
+      {ready ? (
+        <div className="success-panel">
+          <CheckCircle2 size={18} />
+          <span>Your file is ready to download.</span>
+        </div>
+      ) : null}
       <div className="modal-actions">
         <button className="quiet-action" type="button" onClick={onClose}>
           Close
         </button>
-        <button className="primary-action" type="button" onClick={() => void downloadBuild(job.id, job.result_filename)}>
+        <button className="primary-action" type="button" disabled={!ready} onClick={() => void downloadBuild(job.id, job.result_filename)}>
           <Download size={16} />
-          Download file
+          {ready ? 'Download file' : 'Preparing'}
         </button>
       </div>
     </ModalShell>
@@ -492,9 +517,11 @@ function BuildCompleteModal({ job, onClose }: { job: BuildJob; onClose: () => vo
 function BuilderPage({
   onCreated,
   currentJob,
+  onOpenDelivery,
 }: {
   onCreated: (job: BuildJob) => void;
   currentJob: BuildJob | null;
+  onOpenDelivery: () => void;
 }) {
   const fileInput = useRef<HTMLInputElement | null>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -576,10 +603,6 @@ function BuilderPage({
     ? ADDON_OPTIONS.filter((option) => matchResult.addon_keys.includes(option.key))
     : [];
   const canBuild = Boolean(file && matchResult?.matched && baseTune && !loading && !matchLoading);
-  const selectedBase = baseTune ? BASE_OPTIONS.find((option) => option.key === baseTune)?.label || baseTune : 'Not selected';
-  const currentBaseLabel = BASE_OPTION_LABELS[currentJob?.base_tune || baseTune] || selectedBase;
-  const currentAddonKeys = currentJob?.requested_options?.addon_keys || addons;
-  const currentAddonLabels = currentAddonKeys.map((key) => ADDON_OPTION_LABELS[key] || key).filter(Boolean);
   const selectedOptionSummary = baseTune ? buildOptionSummary(baseTune, addons) : 'Find a match to choose a file';
 
   return (
@@ -592,6 +615,12 @@ function BuilderPage({
             <h2>Build a customer file</h2>
           </div>
           <div className="builder-heading-actions">
+            {currentJob ? (
+              <button className="secondary-action compact" type="button" onClick={onOpenDelivery}>
+                <Activity size={15} />
+                Delivery
+              </button>
+            ) : null}
             <button className="secondary-action compact" type="button" onClick={() => setProjectDetailsOpen(true)}>
               <FolderPlus size={15} />
               Project details
@@ -612,21 +641,6 @@ function BuilderPage({
           <strong>{file ? file.name : 'Select file'}</strong>
           <span>{file ? `${formatFileSize(file.size)} selected` : 'BIN, ORI, MOD or tool export'}</span>
         </button>
-
-        <div className="builder-summary-strip">
-          <div>
-            <span>Project</span>
-            <strong>{projectName || vehicle || file?.name || 'Not named yet'}</strong>
-          </div>
-          <div>
-            <span>Vehicle / ECU</span>
-            <strong>{[vehicle || 'Vehicle pending', ecu || 'ECU pending'].join(' / ')}</strong>
-          </div>
-          <button type="button" className="secondary-action compact" onClick={() => setProjectDetailsOpen(true)}>
-            <Info size={14} />
-            Edit details
-          </button>
-        </div>
 
         <div className={clsx('match-panel', matchResult?.matched && 'matched', matchResult && !matchResult.matched && 'failed')}>
           <div className="match-panel-icon">{matchLoading ? <Loader2 className="spin" size={16} /> : <Search size={16} />}</div>
@@ -703,10 +717,6 @@ function BuilderPage({
                 <span>Request</span>
                 <strong>{selectedOptionSummary}</strong>
               </div>
-              <div>
-                <span>Project</span>
-                <strong>{saveProject ? 'Will be saved' : 'One-time build'}</strong>
-              </div>
             </div>
           </>
         ) : (
@@ -721,56 +731,6 @@ function BuilderPage({
           {loading ? <Loader2 className="spin" size={17} /> : <Play size={17} />}
           Prepare download
         </button>
-        </section>
-
-        <section className="workspace-panel result-panel">
-        <div className="section-heading">
-          <div>
-            <span>Delivery</span>
-            <h2>Current build</h2>
-          </div>
-          {currentJob ? <StatusBadge status={currentJob.status} /> : null}
-        </div>
-        {currentJob ? (
-          <div className="job-card">
-            <div className="job-main">
-              <div className="job-title-row">
-                <h3>{currentJob.source_filename}</h3>
-                <strong>{currentJob.progress}%</strong>
-              </div>
-              <div className="progress-bar delivery-progress">
-                <span style={{ width: `${currentJob.progress}%` }} />
-              </div>
-              <div className="delivery-meta">
-                <span>{currentJob.current_stage}</span>
-                <span>{currentJob.status === 'ready' ? 'Download ready' : currentJob.status === 'failed' ? 'Needs attention' : 'Building'}</span>
-              </div>
-              <dl className="build-summary">
-                <div>
-                  <dt>Tune</dt>
-                  <dd>{currentBaseLabel}</dd>
-                </div>
-                <div>
-                  <dt>Options</dt>
-                  <dd>{currentAddonLabels.length ? currentAddonLabels.join(', ') : 'None'}</dd>
-                </div>
-              </dl>
-              {currentJob.error_message ? <div className="form-error">{currentJob.error_message}</div> : null}
-              {currentJob.status === 'ready' ? (
-                <button className="primary-action" type="button" onClick={() => void downloadBuild(currentJob.id, currentJob.result_filename)}>
-                  <Download size={16} />
-                  Download file
-                </button>
-              ) : null}
-            </div>
-          </div>
-        ) : (
-          <div className="empty-state">
-            <FileCog size={34} />
-            <strong>No active build</strong>
-            <span>Select a file, find a match and prepare the download.</span>
-          </div>
-        )}
         </section>
       </div>
       {projectDetailsOpen ? (
@@ -938,8 +898,8 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [builds, setBuilds] = useState<BuildJob[]>([]);
   const [currentJob, setCurrentJob] = useState<BuildJob | null>(null);
-  const [finishedJob, setFinishedJob] = useState<BuildJob | null>(null);
-  const lastFinishedJobId = useRef<string | null>(null);
+  const [deliveryOpen, setDeliveryOpen] = useState(false);
+  const lastReadyJobId = useRef<string | null>(null);
 
   async function refreshData() {
     const [subscriptionData, projectsData, buildsData] = await Promise.all([
@@ -980,9 +940,9 @@ export default function App() {
 
   useEffect(() => {
     if (currentJob?.status !== 'ready') return;
-    if (lastFinishedJobId.current === currentJob.id) return;
-    lastFinishedJobId.current = currentJob.id;
-    setFinishedJob(currentJob);
+    if (lastReadyJobId.current === currentJob.id) return;
+    lastReadyJobId.current = currentJob.id;
+    setDeliveryOpen(true);
   }, [currentJob]);
 
   function logout() {
@@ -991,7 +951,7 @@ export default function App() {
     setProjects([]);
     setBuilds([]);
     setCurrentJob(null);
-    setFinishedJob(null);
+    setDeliveryOpen(false);
     setSubscription(null);
     setActivePage('builder');
   }
@@ -1002,8 +962,10 @@ export default function App() {
     return (
       <BuilderPage
         currentJob={currentJob}
+        onOpenDelivery={() => setDeliveryOpen(true)}
         onCreated={(job) => {
           setCurrentJob(job);
+          setDeliveryOpen(true);
           setBuilds((items) => [job, ...items]);
           void refreshData();
         }}
@@ -1059,7 +1021,7 @@ export default function App() {
         </div>
         {page}
       </main>
-      {finishedJob ? <BuildCompleteModal job={finishedJob} onClose={() => setFinishedJob(null)} /> : null}
+      {deliveryOpen && currentJob ? <BuildDeliveryModal job={currentJob} onClose={() => setDeliveryOpen(false)} /> : null}
     </div>
   );
 }

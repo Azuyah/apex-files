@@ -13,7 +13,6 @@ import {
   Cpu,
   Crown,
   Download,
-  Eye,
   FileCog,
   FileText,
   FolderClock,
@@ -481,61 +480,17 @@ function ModalShell({
   );
 }
 
-function ProjectDetailsModal({
-  file,
-  vehicle,
-  ecu,
-  projectName,
-  saveProject,
-  onVehicle,
-  onEcu,
-  onProjectName,
-  onSaveProject,
+function BuildDeliveryModal({
+  job,
   onClose,
+  onDownloaded,
+  onSaved,
 }: {
-  file: File | null;
-  vehicle: string;
-  ecu: string;
-  projectName: string;
-  saveProject: boolean;
-  onVehicle: (value: string) => void;
-  onEcu: (value: string) => void;
-  onProjectName: (value: string) => void;
-  onSaveProject: (value: boolean) => void;
+  job: BuildJob;
   onClose: () => void;
+  onDownloaded: (jobId: string) => void;
+  onSaved: () => void;
 }) {
-  return (
-    <ModalShell eyebrow="Project" title="Project details" icon={<FolderPlus size={18} />} onClose={onClose}>
-      <div className="detail-grid">
-        <label>
-          <span>Project name</span>
-          <input value={projectName} onChange={(event) => onProjectName(event.target.value)} placeholder={file?.name || 'Customer build'} />
-        </label>
-        <label>
-          <span>Vehicle</span>
-          <input value={vehicle} onChange={(event) => onVehicle(event.target.value)} placeholder="BMW 320d F30" />
-        </label>
-        <label>
-          <span>ECU</span>
-          <input value={ecu} onChange={(event) => onEcu(event.target.value)} placeholder="EDC17C50" />
-        </label>
-        <label className="toggle-row setting-toggle">
-          <input type="checkbox" checked={saveProject} onChange={(event) => onSaveProject(event.target.checked)} />
-          <span>Save to projects</span>
-        </label>
-      </div>
-      <div className="modal-file-strip">
-        <FileText size={16} />
-        <div>
-          <strong>{file?.name || 'No file selected'}</strong>
-          <span>{file ? formatFileSize(file.size) : 'Select a file before starting a build'}</span>
-        </div>
-      </div>
-    </ModalShell>
-  );
-}
-
-function BuildDeliveryModal({ job, onClose, onSaved }: { job: BuildJob; onClose: () => void; onSaved: () => void }) {
   const ready = job.status === 'ready';
   const failed = job.status === 'failed';
   const addonLabels = (job.requested_options?.addon_keys || []).map((key) => ADDON_OPTION_LABELS[key] || key).filter(Boolean);
@@ -543,9 +498,25 @@ function BuildDeliveryModal({ job, onClose, onSaved }: { job: BuildJob; onClose:
   const [vehicleLabel, setVehicleLabel] = useState(job.vehicle_label);
   const [ecuLabel, setEcuLabel] = useState(job.ecu_label);
   const [comments, setComments] = useState('');
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState('');
+
+  async function downloadReadyFile() {
+    if (!ready) return;
+    setDownloading(true);
+    setDownloadError('');
+    try {
+      await downloadBuild(job.id, job.result_filename);
+      onDownloaded(job.id);
+    } catch (error) {
+      setDownloadError(userFacingError(error, 'Could not download this file. Please try again.'));
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   async function saveToFiles() {
     if (!ready || !projectName.trim()) return;
@@ -634,12 +605,13 @@ function BuildDeliveryModal({ job, onClose, onSaved }: { job: BuildJob; onClose:
           {saveError ? <div className="form-error">{saveError}</div> : null}
         </div>
       ) : null}
+      {downloadError ? <div className="form-error">{downloadError}</div> : null}
       <div className="modal-actions delivery-modal-actions">
         <button className="quiet-action" type="button" onClick={onClose}>
           Close
         </button>
-        <button className="secondary-action" type="button" disabled={!ready} onClick={() => void downloadBuild(job.id, job.result_filename)}>
-          <Download size={16} />
+        <button className="secondary-action" type="button" disabled={!ready || downloading} onClick={() => void downloadReadyFile()}>
+          {downloading ? <Loader2 className="spin" size={16} /> : <Download size={16} />}
           {ready ? 'Download again' : 'Preparing'}
         </button>
         <button className="primary-action" type="button" disabled={!ready || saving || !projectName.trim()} onClick={() => void saveToFiles()}>
@@ -654,10 +626,12 @@ function BuildDeliveryModal({ job, onClose, onSaved }: { job: BuildJob; onClose:
 function BuilderPage({
   onCreated,
   currentJob,
+  deliveryReady,
   onOpenDelivery,
 }: {
   onCreated: (job: BuildJob) => void;
   currentJob: BuildJob | null;
+  deliveryReady: boolean;
   onOpenDelivery: () => void;
 }) {
   const fileInput = useRef<HTMLInputElement | null>(null);
@@ -667,12 +641,9 @@ function BuilderPage({
   const [addons, setAddons] = useState<string[]>([]);
   const [vehicle, setVehicle] = useState('');
   const [ecu, setEcu] = useState('');
-  const [saveProject, setSaveProject] = useState(true);
-  const [projectName, setProjectName] = useState('');
   const [matchLoading, setMatchLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [projectDetailsOpen, setProjectDetailsOpen] = useState(false);
 
   function selectFile(nextFile: File | null) {
     setFile(nextFile);
@@ -707,7 +678,6 @@ function BuilderPage({
         setBaseTune(firstBase?.key || '');
         if (!vehicle.trim() && result.vehicle_label) setVehicle(result.vehicle_label);
         if (!ecu.trim() && result.ecu_label) setEcu(result.ecu_label);
-        if (!projectName.trim() && result.project_name) setProjectName(result.project_name);
       }
     } catch (reason) {
       setError(userFacingError(reason, 'Could not find a matching file. Please try again.'));
@@ -727,8 +697,8 @@ function BuilderPage({
         addon_keys: addons,
         vehicle_label: vehicle,
         ecu_label: ecu,
-        save_project: saveProject,
-        project_name: projectName || vehicle || file.name,
+        save_project: false,
+        project_name: vehicle || file.name,
       });
       onCreated(job);
     } catch (reason) {
@@ -745,6 +715,7 @@ function BuilderPage({
     ? ADDON_OPTIONS.filter((option) => matchResult.addon_keys.includes(option.key))
     : [];
   const canBuild = Boolean(file && matchResult?.matched && baseTune && !loading && !matchLoading);
+  const canOpenDelivery = Boolean(currentJob && deliveryReady && file && currentJob.source_filename === file.name);
   const matched = Boolean(matchResult?.matched);
   const selectedBaseLabel = baseTune ? BASE_OPTION_LABELS[baseTune] || baseTune : 'Pending';
   const selectedAddonLabels = addons.map((key) => ADDON_OPTION_LABELS[key] || key);
@@ -847,10 +818,6 @@ function BuilderPage({
                 <MatchInfoRow icon={<Cpu size={15} />} label="Hardware Number" value={hardwareDisplay} />
                 <MatchInfoRow icon={<FileText size={15} />} label="File status" value={matched ? 'Original / stock' : 'Pending'} />
               </div>
-              <button className="secondary-action compact details-action" type="button" onClick={() => setProjectDetailsOpen(true)}>
-                View details
-                <Eye size={15} />
-              </button>
             </div>
           </section>
 
@@ -965,7 +932,7 @@ function BuilderPage({
                 <ShieldCheck size={15} />
                 <span>Files are checked and prepared securely.</span>
               </div>
-              {currentJob ? (
+              {canOpenDelivery ? (
                 <button className="secondary-action compact delivery-action" type="button" onClick={onOpenDelivery}>
                   <Activity size={15} />
                   Open delivery
@@ -993,20 +960,6 @@ function BuilderPage({
           </div>
         </div>
       </div>
-      {projectDetailsOpen ? (
-        <ProjectDetailsModal
-          file={file}
-          vehicle={vehicle}
-          ecu={ecu}
-          projectName={projectName}
-          saveProject={saveProject}
-          onVehicle={setVehicle}
-          onEcu={setEcu}
-          onProjectName={setProjectName}
-          onSaveProject={setSaveProject}
-          onClose={() => setProjectDetailsOpen(false)}
-        />
-      ) : null}
     </>
   );
 }
@@ -1157,6 +1110,7 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [builds, setBuilds] = useState<BuildJob[]>([]);
   const [currentJob, setCurrentJob] = useState<BuildJob | null>(null);
+  const [downloadedJobIds, setDownloadedJobIds] = useState<Set<string>>(() => new Set());
   const [deliveryOpen, setDeliveryOpen] = useState(false);
   const lastReadyJobId = useRef<string | null>(null);
 
@@ -1213,6 +1167,7 @@ export default function App() {
     return (
       <BuilderPage
         currentJob={currentJob}
+        deliveryReady={Boolean(currentJob && downloadedJobIds.has(currentJob.id))}
         onOpenDelivery={() => setDeliveryOpen(true)}
         onCreated={(job) => {
           setCurrentJob(job);
@@ -1222,7 +1177,7 @@ export default function App() {
         }}
       />
     );
-  }, [activePage, builds, currentJob, projects, subscription, user]);
+  }, [activePage, builds, currentJob, downloadedJobIds, projects, subscription, user]);
 
   if (loading) {
     return (
@@ -1276,6 +1231,13 @@ export default function App() {
         <BuildDeliveryModal
           job={currentJob}
           onClose={() => setDeliveryOpen(false)}
+          onDownloaded={(jobId) => {
+            setDownloadedJobIds((current) => {
+              const next = new Set(current);
+              next.add(jobId);
+              return next;
+            });
+          }}
           onSaved={() => {
             void refreshData();
           }}

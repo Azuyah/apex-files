@@ -3173,8 +3173,8 @@ body {
 
 /* Final product pass: fixed shell behavior and tighter file-service cards. */
 body {
-  min-width: 1360px;
-  min-height: 900px;
+  min-width: 1460px;
+  min-height: 920px;
 }
 
 textarea {
@@ -3214,16 +3214,41 @@ textarea:focus {
 }
 
 .upload-service-card,
+.match-service-card,
 .results-service-card,
 .summary-service-card {
   display: flex;
-  min-height: 357px;
   flex-direction: column;
+}
+
+.file-service-grid {
+  grid-template-rows: 342px minmax(332px, 1fr) auto;
+}
+
+.service-card {
+  border-color: rgba(255, 255, 255, 0.16);
+  background:
+    radial-gradient(circle at 10% 0%, rgba(255, 255, 255, 0.055), transparent 38%),
+    linear-gradient(180deg, #171c1f 0%, #111619 100%);
+}
+
+.upload-service-card,
+.match-service-card,
+.results-service-card {
+  height: 342px;
+  min-height: 342px;
+}
+
+.tuning-service-card,
+.summary-service-card {
+  min-height: 332px;
 }
 
 .upload-service-card .ecu-drop-target {
   flex: 1 1 auto;
   min-height: 0;
+  border-color: rgba(226, 232, 240, 0.36);
+  background: #181d20;
 }
 
 .upload-service-card .file-strip {
@@ -3236,10 +3261,10 @@ textarea:focus {
   min-height: 0;
   flex: 1 1 auto;
   flex-direction: column;
-  border: 1px solid rgba(255, 255, 255, 0.13);
+  border: 1px solid rgba(255, 255, 255, 0.17);
   border-radius: 5px;
   padding: 12px;
-  background: #12191b;
+  background: #121719;
 }
 
 .match-results-box .match-info-list {
@@ -3248,6 +3273,10 @@ textarea:focus {
 
 .match-results-box .details-action {
   margin-top: auto;
+}
+
+.match-results-box .match-info-row {
+  min-height: 29px;
 }
 
 .summary-download-box {

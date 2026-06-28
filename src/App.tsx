@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, DragEvent, FormEvent, ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties, DragEvent, FormEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import clsx from 'clsx';
 import {
   Activity,
@@ -10,6 +10,7 @@ import {
   ChevronRight,
   CheckCircle2,
   CircleAlert,
+  Copy,
   Cpu,
   Crown,
   Download,
@@ -28,12 +29,17 @@ import {
   LogIn,
   Maximize2,
   Minus,
+  Move,
+  Palette,
+  Redo2,
+  RotateCcw,
   Search,
   Settings,
   ShieldCheck,
   SlidersHorizontal,
   Square,
   Star,
+  Undo2,
   Upload,
   UserCircle,
   UserPlus,
@@ -92,6 +98,157 @@ const ADDON_OPTIONS = [
 
 const BASE_OPTION_LABELS = Object.fromEntries(BASE_OPTIONS.map((option) => [option.key, option.label]));
 const ADDON_OPTION_LABELS = Object.fromEntries(ADDON_OPTIONS.map((option) => [option.key, option.label]));
+
+type DesignCardKey = 'upload' | 'match' | 'results' | 'tuning' | 'summary';
+
+type DesignCardConfig = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  padding: number;
+  radius: number;
+  borderWidth: number;
+  borderColor: string;
+  background: string;
+  innerBackground: string;
+  textColor: string;
+  mutedColor: string;
+  titleColor: string;
+  fontSize: number;
+  titleSize: number;
+  labelSize: number;
+  contentGap: number;
+  shadowOpacity: number;
+};
+
+type DesignLabConfig = {
+  version: 1;
+  global: {
+    fontFamily: string;
+    baseFontSize: number;
+    titleFontSize: number;
+    labelFontSize: number;
+    workspacePaddingX: number;
+    workspacePaddingY: number;
+    headerHeight: number;
+    sidebarWidth: number;
+    gridGap: number;
+    topRowHeight: number;
+    lowerRowMinHeight: number;
+    pageBackground: string;
+    workspaceBackground: string;
+    headerBackground: string;
+    sidebarBackground: string;
+    accentColor: string;
+    textColor: string;
+    mutedColor: string;
+    cardColumnOne: number;
+    cardColumnTwo: number;
+    cardColumnThree: number;
+  };
+  cards: Record<DesignCardKey, DesignCardConfig>;
+};
+
+const DESIGN_CARD_KEYS: DesignCardKey[] = ['upload', 'match', 'results', 'tuning', 'summary'];
+const DESIGN_CARD_LABELS: Record<DesignCardKey, string> = {
+  upload: 'Upload original ECU file',
+  match: 'Match file',
+  results: 'File match results',
+  tuning: 'Tuning versions & options',
+  summary: 'Summary & download',
+};
+const DESIGN_LAB_STORAGE_KEY = 'apex-files-design-lab-config';
+
+const DEFAULT_DESIGN_CARD: DesignCardConfig = {
+  x: 0,
+  y: 0,
+  width: 0,
+  height: 342,
+  padding: 12,
+  radius: 7,
+  borderWidth: 1,
+  borderColor: '#2f3a3d',
+  background: '#151b1e',
+  innerBackground: '#121719',
+  textColor: '#f3f6f6',
+  mutedColor: '#8f9daa',
+  titleColor: '#f5f7f7',
+  fontSize: 13,
+  titleSize: 13,
+  labelSize: 11,
+  contentGap: 10,
+  shadowOpacity: 0,
+};
+
+const DEFAULT_DESIGN_LAB_CONFIG: DesignLabConfig = {
+  version: 1,
+  global: {
+    fontFamily: 'Roboto Condensed',
+    baseFontSize: 13,
+    titleFontSize: 13,
+    labelFontSize: 11,
+    workspacePaddingX: 18,
+    workspacePaddingY: 10,
+    headerHeight: 82,
+    sidebarWidth: 236,
+    gridGap: 8,
+    topRowHeight: 342,
+    lowerRowMinHeight: 332,
+    pageBackground: '#05090a',
+    workspaceBackground: '#05090a',
+    headerBackground: '#0a1011',
+    sidebarBackground: '#060b0c',
+    accentColor: '#ff8a00',
+    textColor: '#f3f6f6',
+    mutedColor: '#8f9daa',
+    cardColumnOne: 1.16,
+    cardColumnTwo: 0.76,
+    cardColumnThree: 1.24,
+  },
+  cards: {
+    upload: { ...DEFAULT_DESIGN_CARD },
+    match: { ...DEFAULT_DESIGN_CARD },
+    results: { ...DEFAULT_DESIGN_CARD },
+    tuning: { ...DEFAULT_DESIGN_CARD, height: 332 },
+    summary: { ...DEFAULT_DESIGN_CARD, height: 332 },
+  },
+};
+
+function cloneDesignConfig(config: DesignLabConfig): DesignLabConfig {
+  return JSON.parse(JSON.stringify(config)) as DesignLabConfig;
+}
+
+function readDesignLabConfig(): DesignLabConfig {
+  try {
+    const raw = localStorage.getItem(DESIGN_LAB_STORAGE_KEY);
+    if (!raw) return cloneDesignConfig(DEFAULT_DESIGN_LAB_CONFIG);
+    const parsed = JSON.parse(raw) as Partial<DesignLabConfig>;
+    if (parsed.version !== 1 || !parsed.global || !parsed.cards) return cloneDesignConfig(DEFAULT_DESIGN_LAB_CONFIG);
+    return {
+      version: 1,
+      global: { ...DEFAULT_DESIGN_LAB_CONFIG.global, ...parsed.global },
+      cards: DESIGN_CARD_KEYS.reduce(
+        (acc, key) => ({
+          ...acc,
+          [key]: { ...DEFAULT_DESIGN_LAB_CONFIG.cards[key], ...(parsed.cards?.[key] || {}) },
+        }),
+        {} as Record<DesignCardKey, DesignCardConfig>,
+      ),
+    };
+  } catch {
+    return cloneDesignConfig(DEFAULT_DESIGN_LAB_CONFIG);
+  }
+}
+
+function designLabJson(config: DesignLabConfig) {
+  return JSON.stringify(config, null, 2);
+}
+
+function configFontFamily(fontFamily: string) {
+  if (fontFamily === 'system-ui') return 'system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+  return `'${fontFamily}', system-ui, -apple-system, BlinkMacSystemFont, sans-serif`;
+}
 
 function userFacingError(reason: unknown, fallback: string) {
   const message = reason instanceof Error ? reason.message : fallback;
@@ -480,6 +637,203 @@ function ModalShell({
   );
 }
 
+function NumberControl({
+  label,
+  value,
+  min,
+  max,
+  step = 1,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="design-control">
+      <span>{label}</span>
+      <input
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+    </label>
+  );
+}
+
+function ColorControl({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="design-control design-color-control">
+      <span>{label}</span>
+      <input type="color" value={value} onChange={(event) => onChange(event.target.value)} />
+      <input value={value} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}
+
+function DesignLabPanel({
+  config,
+  selectedCard,
+  canUndo,
+  canRedo,
+  onSelectCard,
+  onUpdateGlobal,
+  onUpdateCard,
+  onReset,
+  onUndo,
+  onRedo,
+  onClose,
+}: {
+  config: DesignLabConfig;
+  selectedCard: DesignCardKey;
+  canUndo: boolean;
+  canRedo: boolean;
+  onSelectCard: (key: DesignCardKey) => void;
+  onUpdateGlobal: (patch: Partial<DesignLabConfig['global']>) => void;
+  onUpdateCard: (key: DesignCardKey, patch: Partial<DesignCardConfig>) => void;
+  onReset: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const card = config.cards[selectedCard];
+  const exportJson = useMemo(() => designLabJson(config), [config]);
+
+  async function copyConfig() {
+    await navigator.clipboard.writeText(exportJson);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1400);
+  }
+
+  return (
+    <aside className="design-lab-panel app-no-drag" aria-label="Design controls">
+      <div className="design-lab-header">
+        <div>
+          <span>Temporary control</span>
+          <strong>Design Lab</strong>
+        </div>
+        <button type="button" className="icon-action" onClick={onClose} title="Close design lab">
+          <X size={15} />
+        </button>
+      </div>
+
+      <div className="design-lab-toolbar">
+        <button type="button" onClick={onUndo} disabled={!canUndo}>
+          <Undo2 size={14} />
+          Undo
+        </button>
+        <button type="button" onClick={onRedo} disabled={!canRedo}>
+          <Redo2 size={14} />
+          Redo
+        </button>
+        <button type="button" onClick={onReset}>
+          <RotateCcw size={14} />
+          Reset
+        </button>
+      </div>
+
+      <div className="design-section">
+        <h3>
+          <Palette size={14} />
+          Global
+        </h3>
+        <label className="design-control">
+          <span>Font family</span>
+          <select value={config.global.fontFamily} onChange={(event) => onUpdateGlobal({ fontFamily: event.target.value })}>
+            <option>Roboto Condensed</option>
+            <option>Inter</option>
+            <option>Segoe UI</option>
+            <option>Bahnschrift</option>
+            <option>Arial Narrow</option>
+            <option>Arial</option>
+            <option>Tahoma</option>
+            <option>system-ui</option>
+          </select>
+        </label>
+        <div className="design-control-grid">
+          <NumberControl label="Base font" value={config.global.baseFontSize} min={9} max={22} onChange={(value) => onUpdateGlobal({ baseFontSize: value })} />
+          <NumberControl label="Title font" value={config.global.titleFontSize} min={9} max={26} onChange={(value) => onUpdateGlobal({ titleFontSize: value })} />
+          <NumberControl label="Label font" value={config.global.labelFontSize} min={8} max={18} onChange={(value) => onUpdateGlobal({ labelFontSize: value })} />
+          <NumberControl label="Grid gap" value={config.global.gridGap} min={0} max={28} onChange={(value) => onUpdateGlobal({ gridGap: value })} />
+          <NumberControl label="Top row" value={config.global.topRowHeight} min={260} max={520} onChange={(value) => onUpdateGlobal({ topRowHeight: value })} />
+          <NumberControl label="Lower row" value={config.global.lowerRowMinHeight} min={240} max={620} onChange={(value) => onUpdateGlobal({ lowerRowMinHeight: value })} />
+          <NumberControl label="Header h" value={config.global.headerHeight} min={58} max={128} onChange={(value) => onUpdateGlobal({ headerHeight: value })} />
+          <NumberControl label="Sidebar w" value={config.global.sidebarWidth} min={170} max={340} onChange={(value) => onUpdateGlobal({ sidebarWidth: value })} />
+          <NumberControl label="Pad X" value={config.global.workspacePaddingX} min={0} max={48} onChange={(value) => onUpdateGlobal({ workspacePaddingX: value })} />
+          <NumberControl label="Pad Y" value={config.global.workspacePaddingY} min={0} max={48} onChange={(value) => onUpdateGlobal({ workspacePaddingY: value })} />
+          <NumberControl label="Col 1" value={config.global.cardColumnOne} min={0.6} max={2.2} step={0.01} onChange={(value) => onUpdateGlobal({ cardColumnOne: value })} />
+          <NumberControl label="Col 2" value={config.global.cardColumnTwo} min={0.4} max={1.6} step={0.01} onChange={(value) => onUpdateGlobal({ cardColumnTwo: value })} />
+          <NumberControl label="Col 3" value={config.global.cardColumnThree} min={0.6} max={2.4} step={0.01} onChange={(value) => onUpdateGlobal({ cardColumnThree: value })} />
+        </div>
+        <div className="design-control-grid">
+          <ColorControl label="Page bg" value={config.global.pageBackground} onChange={(value) => onUpdateGlobal({ pageBackground: value })} />
+          <ColorControl label="Workspace bg" value={config.global.workspaceBackground} onChange={(value) => onUpdateGlobal({ workspaceBackground: value })} />
+          <ColorControl label="Header bg" value={config.global.headerBackground} onChange={(value) => onUpdateGlobal({ headerBackground: value })} />
+          <ColorControl label="Sidebar bg" value={config.global.sidebarBackground} onChange={(value) => onUpdateGlobal({ sidebarBackground: value })} />
+          <ColorControl label="Accent" value={config.global.accentColor} onChange={(value) => onUpdateGlobal({ accentColor: value })} />
+          <ColorControl label="Text" value={config.global.textColor} onChange={(value) => onUpdateGlobal({ textColor: value })} />
+          <ColorControl label="Muted" value={config.global.mutedColor} onChange={(value) => onUpdateGlobal({ mutedColor: value })} />
+        </div>
+      </div>
+
+      <div className="design-section">
+        <h3>
+          <Move size={14} />
+          Container
+        </h3>
+        <div className="design-card-tabs">
+          {DESIGN_CARD_KEYS.map((key) => (
+            <button type="button" key={key} className={clsx(key === selectedCard && 'selected')} onClick={() => onSelectCard(key)}>
+              {DESIGN_CARD_LABELS[key].replace(' original ECU file', '').replace(' versions & options', '')}
+            </button>
+          ))}
+        </div>
+        <div className="design-control-grid">
+          <NumberControl label="X" value={card.x} min={-500} max={500} onChange={(value) => onUpdateCard(selectedCard, { x: value })} />
+          <NumberControl label="Y" value={card.y} min={-500} max={500} onChange={(value) => onUpdateCard(selectedCard, { y: value })} />
+          <NumberControl label="Width (0 auto)" value={card.width} min={0} max={1200} onChange={(value) => onUpdateCard(selectedCard, { width: value })} />
+          <NumberControl label="Height" value={card.height} min={180} max={820} onChange={(value) => onUpdateCard(selectedCard, { height: value })} />
+          <NumberControl label="Padding" value={card.padding} min={0} max={48} onChange={(value) => onUpdateCard(selectedCard, { padding: value })} />
+          <NumberControl label="Radius" value={card.radius} min={0} max={32} onChange={(value) => onUpdateCard(selectedCard, { radius: value })} />
+          <NumberControl label="Border" value={card.borderWidth} min={0} max={6} onChange={(value) => onUpdateCard(selectedCard, { borderWidth: value })} />
+          <NumberControl label="Gap" value={card.contentGap} min={0} max={36} onChange={(value) => onUpdateCard(selectedCard, { contentGap: value })} />
+          <NumberControl label="Font" value={card.fontSize} min={9} max={24} onChange={(value) => onUpdateCard(selectedCard, { fontSize: value })} />
+          <NumberControl label="Title font" value={card.titleSize} min={9} max={28} onChange={(value) => onUpdateCard(selectedCard, { titleSize: value })} />
+          <NumberControl label="Label font" value={card.labelSize} min={8} max={18} onChange={(value) => onUpdateCard(selectedCard, { labelSize: value })} />
+          <NumberControl label="Shadow" value={card.shadowOpacity} min={0} max={0.8} step={0.01} onChange={(value) => onUpdateCard(selectedCard, { shadowOpacity: value })} />
+        </div>
+        <div className="design-control-grid">
+          <ColorControl label="Background" value={card.background} onChange={(value) => onUpdateCard(selectedCard, { background: value })} />
+          <ColorControl label="Inner bg" value={card.innerBackground} onChange={(value) => onUpdateCard(selectedCard, { innerBackground: value })} />
+          <ColorControl label="Border color" value={card.borderColor} onChange={(value) => onUpdateCard(selectedCard, { borderColor: value })} />
+          <ColorControl label="Text" value={card.textColor} onChange={(value) => onUpdateCard(selectedCard, { textColor: value })} />
+          <ColorControl label="Muted" value={card.mutedColor} onChange={(value) => onUpdateCard(selectedCard, { mutedColor: value })} />
+          <ColorControl label="Title" value={card.titleColor} onChange={(value) => onUpdateCard(selectedCard, { titleColor: value })} />
+        </div>
+      </div>
+
+      <div className="design-section">
+        <h3>
+          <Copy size={14} />
+          Export
+        </h3>
+        <textarea className="design-export" readOnly value={exportJson} />
+        <button type="button" className="primary-action design-copy-action" onClick={() => void copyConfig()}>
+          <Copy size={15} />
+          {copied ? 'Copied' : 'Copy JSON'}
+        </button>
+      </div>
+    </aside>
+  );
+}
+
 function BuildDeliveryModal({
   job,
   onClose,
@@ -627,11 +981,23 @@ function BuilderPage({
   onCreated,
   currentJob,
   deliveryReady,
+  designMode,
+  designConfig,
+  selectedDesignCard,
+  onSelectDesignCard,
+  onDesignCardChange,
+  onDesignHistoryPoint,
   onOpenDelivery,
 }: {
   onCreated: (job: BuildJob) => void;
   currentJob: BuildJob | null;
   deliveryReady: boolean;
+  designMode: boolean;
+  designConfig: DesignLabConfig;
+  selectedDesignCard: DesignCardKey;
+  onSelectDesignCard: (key: DesignCardKey) => void;
+  onDesignCardChange: (key: DesignCardKey, patch: Partial<DesignCardConfig>, recordHistory?: boolean) => void;
+  onDesignHistoryPoint: () => void;
   onOpenDelivery: () => void;
 }) {
   const fileInput = useRef<HTMLInputElement | null>(null);
@@ -736,12 +1102,111 @@ function BuilderPage({
         : file
           ? 'Ready to match'
           : 'Choose a file to start';
+  const designVars = designMode
+    ? ({
+        '--design-font-family': configFontFamily(designConfig.global.fontFamily),
+        '--design-base-font-size': `${designConfig.global.baseFontSize}px`,
+        '--design-title-font-size': `${designConfig.global.titleFontSize}px`,
+        '--design-label-font-size': `${designConfig.global.labelFontSize}px`,
+        '--design-workspace-padding-x': `${designConfig.global.workspacePaddingX}px`,
+        '--design-workspace-padding-y': `${designConfig.global.workspacePaddingY}px`,
+        '--design-header-height': `${designConfig.global.headerHeight}px`,
+        '--design-sidebar-width': `${designConfig.global.sidebarWidth}px`,
+        '--design-grid-gap': `${designConfig.global.gridGap}px`,
+        '--design-top-row-height': `${designConfig.global.topRowHeight}px`,
+        '--design-lower-row-min-height': `${designConfig.global.lowerRowMinHeight}px`,
+        '--design-page-bg': designConfig.global.pageBackground,
+        '--design-workspace-bg': designConfig.global.workspaceBackground,
+        '--design-header-bg': designConfig.global.headerBackground,
+        '--design-sidebar-bg': designConfig.global.sidebarBackground,
+        '--design-accent': designConfig.global.accentColor,
+        '--design-text': designConfig.global.textColor,
+        '--design-muted': designConfig.global.mutedColor,
+        '--design-col-1': `${designConfig.global.cardColumnOne}fr`,
+        '--design-col-2': `${designConfig.global.cardColumnTwo}fr`,
+        '--design-col-3': `${designConfig.global.cardColumnThree}fr`,
+      } as CSSProperties)
+    : undefined;
+
+  function designCardStyle(key: DesignCardKey): CSSProperties | undefined {
+    if (!designMode) return undefined;
+    const card = designConfig.cards[key];
+    return {
+      transform: `translate(${card.x}px, ${card.y}px)`,
+      width: card.width ? `${card.width}px` : undefined,
+      height: `${card.height}px`,
+      minHeight: `${card.height}px`,
+      padding: `${card.padding}px`,
+      borderRadius: `${card.radius}px`,
+      borderWidth: `${card.borderWidth}px`,
+      borderColor: card.borderColor,
+      background: card.background,
+      color: card.textColor,
+      fontSize: `${card.fontSize}px`,
+      boxShadow: card.shadowOpacity ? `0 18px 54px rgba(0, 0, 0, ${card.shadowOpacity})` : 'none',
+      '--design-card-inner-bg': card.innerBackground,
+      '--design-card-text': card.textColor,
+      '--design-card-muted': card.mutedColor,
+      '--design-card-title': card.titleColor,
+      '--design-card-title-size': `${card.titleSize}px`,
+      '--design-card-label-size': `${card.labelSize}px`,
+      '--design-card-gap': `${card.contentGap}px`,
+    } as CSSProperties;
+  }
+
+  function startDesignDrag(key: DesignCardKey, event: ReactPointerEvent<HTMLButtonElement>) {
+    if (!designMode) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onSelectDesignCard(key);
+    onDesignHistoryPoint();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startCard = designConfig.cards[key];
+    const onMove = (moveEvent: PointerEvent) => {
+      onDesignCardChange(
+        key,
+        {
+          x: Math.round(startCard.x + moveEvent.clientX - startX),
+          y: Math.round(startCard.y + moveEvent.clientY - startY),
+        },
+        false,
+      );
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp, { once: true });
+  }
+
+  function designCardClass(key: DesignCardKey, className: string) {
+    return clsx(className, designMode && 'design-editable-card', designMode && selectedDesignCard === key && 'design-selected-card');
+  }
+
+  function renderDesignHandle(cardKey: DesignCardKey) {
+    if (!designMode) return null;
+    return (
+      <button
+        type="button"
+        className="design-card-handle app-no-drag"
+        title={`Drag ${DESIGN_CARD_LABELS[cardKey]}`}
+        onPointerDown={(event) => startDesignDrag(cardKey, event)}
+        onClick={() => onSelectDesignCard(cardKey)}
+      >
+        <Move size={13} />
+        <span>{DESIGN_CARD_LABELS[cardKey]}</span>
+      </button>
+    );
+  }
 
   return (
     <>
-      <div className="builder-layout">
+      <div className={clsx('builder-layout', designMode && 'design-lab-active')} style={designVars}>
         <div className="file-service-grid">
-          <section className="service-card upload-service-card">
+          <section className={designCardClass('upload', 'service-card upload-service-card')} style={designCardStyle('upload')} onClick={() => designMode && onSelectDesignCard('upload')}>
+            {renderDesignHandle('upload')}
             <StepTitle index={1} title="Upload original ECU file" />
             <input
               ref={fileInput}
@@ -776,7 +1241,8 @@ function BuilderPage({
             ) : null}
           </section>
 
-          <section className="service-card match-service-card">
+          <section className={designCardClass('match', 'service-card match-service-card')} style={designCardStyle('match')} onClick={() => designMode && onSelectDesignCard('match')}>
+            {renderDesignHandle('match')}
             <StepTitle index={2} title="Match file" />
             <div className={clsx('scanner-orb', matchLoading && 'scanning', matched && 'confirmed')} aria-hidden="true">
               <span className="scanner-ring one" />
@@ -800,7 +1266,8 @@ function BuilderPage({
             </div>
           </section>
 
-          <section className="service-card results-service-card">
+          <section className={designCardClass('results', 'service-card results-service-card')} style={designCardStyle('results')} onClick={() => designMode && onSelectDesignCard('results')}>
+            {renderDesignHandle('results')}
             <div className="card-title-row">
               <StepTitle index={3} title="File match results" />
               <span className={clsx('result-chip', matched && 'confirmed', matchResult && !matched && 'failed')}>
@@ -821,7 +1288,12 @@ function BuilderPage({
             </div>
           </section>
 
-          <section className={clsx('service-card tuning-service-card', !matched && 'locked')}>
+          <section
+            className={clsx(designCardClass('tuning', 'service-card tuning-service-card'), !matched && 'locked')}
+            style={designCardStyle('tuning')}
+            onClick={() => designMode && onSelectDesignCard('tuning')}
+          >
+            {renderDesignHandle('tuning')}
             <StepTitle index={4} title="Select tuning version & options" />
             {matched ? (
               <div className="tuning-config">
@@ -880,7 +1352,8 @@ function BuilderPage({
             )}
           </section>
 
-          <section className="service-card summary-service-card">
+          <section className={designCardClass('summary', 'service-card summary-service-card')} style={designCardStyle('summary')} onClick={() => designMode && onSelectDesignCard('summary')}>
+            {renderDesignHandle('summary')}
             <StepTitle index={5} title="Summary & download" />
             <div className="summary-download-box">
               <div className="selected-summary">
@@ -1112,6 +1585,11 @@ export default function App() {
   const [currentJob, setCurrentJob] = useState<BuildJob | null>(null);
   const [downloadedJobIds, setDownloadedJobIds] = useState<Set<string>>(() => new Set());
   const [deliveryOpen, setDeliveryOpen] = useState(false);
+  const [designMode, setDesignMode] = useState(false);
+  const [designConfig, setDesignConfig] = useState<DesignLabConfig>(() => readDesignLabConfig());
+  const [selectedDesignCard, setSelectedDesignCard] = useState<DesignCardKey>('upload');
+  const [designPast, setDesignPast] = useState<DesignLabConfig[]>([]);
+  const [designFuture, setDesignFuture] = useState<DesignLabConfig[]>([]);
   const lastReadyJobId = useRef<string | null>(null);
 
   async function refreshData() {
@@ -1161,6 +1639,84 @@ export default function App() {
     setDeliveryOpen(true);
   }, [currentJob]);
 
+  useEffect(() => {
+    localStorage.setItem(DESIGN_LAB_STORAGE_KEY, designLabJson(designConfig));
+  }, [designConfig]);
+
+  const updateDesignConfig = useCallback((mutator: (draft: DesignLabConfig) => void, recordHistory = true) => {
+    setDesignConfig((current) => {
+      const next = cloneDesignConfig(current);
+      mutator(next);
+      if (recordHistory) {
+        setDesignPast((items) => [...items.slice(-59), cloneDesignConfig(current)]);
+        setDesignFuture([]);
+      }
+      return next;
+    });
+  }, []);
+
+  const markDesignHistoryPoint = useCallback(() => {
+    setDesignPast((items) => [...items.slice(-59), cloneDesignConfig(designConfig)]);
+    setDesignFuture([]);
+  }, [designConfig]);
+
+  const updateDesignGlobal = useCallback((patch: Partial<DesignLabConfig['global']>) => {
+    updateDesignConfig((draft) => {
+      draft.global = { ...draft.global, ...patch };
+    });
+  }, [updateDesignConfig]);
+
+  const updateDesignCard = useCallback((key: DesignCardKey, patch: Partial<DesignCardConfig>, recordHistory = true) => {
+    updateDesignConfig((draft) => {
+      draft.cards[key] = { ...draft.cards[key], ...patch };
+    }, recordHistory);
+  }, [updateDesignConfig]);
+
+  const undoDesignChange = useCallback(() => {
+    if (!designPast.length) return;
+    const previous = designPast[designPast.length - 1];
+    setDesignPast((items) => items.slice(0, -1));
+    setDesignFuture((items) => [cloneDesignConfig(designConfig), ...items].slice(0, 60));
+    setDesignConfig(cloneDesignConfig(previous));
+  }, [designConfig, designPast]);
+
+  const redoDesignChange = useCallback(() => {
+    if (!designFuture.length) return;
+    const next = designFuture[0];
+    setDesignFuture((items) => items.slice(1));
+    setDesignPast((items) => [...items.slice(-59), cloneDesignConfig(designConfig)]);
+    setDesignConfig(cloneDesignConfig(next));
+  }, [designConfig, designFuture]);
+
+  const resetDesignConfig = useCallback(() => {
+    updateDesignConfig((draft) => {
+      Object.assign(draft, cloneDesignConfig(DEFAULT_DESIGN_LAB_CONFIG));
+    });
+    setSelectedDesignCard('upload');
+  }, [updateDesignConfig]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const commandKey = event.ctrlKey || event.metaKey;
+      if (commandKey && event.shiftKey && event.key.toLowerCase() === 'd') {
+        event.preventDefault();
+        setDesignMode((current) => !current);
+        return;
+      }
+      if (!designMode || !commandKey) return;
+      if (event.key.toLowerCase() === 'z' && !event.shiftKey) {
+        event.preventDefault();
+        undoDesignChange();
+      }
+      if (event.key.toLowerCase() === 'y' || (event.key.toLowerCase() === 'z' && event.shiftKey)) {
+        event.preventDefault();
+        redoDesignChange();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [designMode, designPast, designFuture, designConfig, undoDesignChange, redoDesignChange]);
+
   const page = useMemo(() => {
     if (activePage === 'projects') return <ProjectsPage projects={projects} builds={builds} />;
     if (activePage === 'account' && user) return <AccountPage subscription={subscription} user={user} />;
@@ -1168,6 +1724,12 @@ export default function App() {
       <BuilderPage
         currentJob={currentJob}
         deliveryReady={Boolean(currentJob && downloadedJobIds.has(currentJob.id))}
+        designMode={designMode}
+        designConfig={designConfig}
+        selectedDesignCard={selectedDesignCard}
+        onSelectDesignCard={setSelectedDesignCard}
+        onDesignCardChange={updateDesignCard}
+        onDesignHistoryPoint={markDesignHistoryPoint}
         onOpenDelivery={() => setDeliveryOpen(true)}
         onCreated={(job) => {
           setCurrentJob(job);
@@ -1177,7 +1739,20 @@ export default function App() {
         }}
       />
     );
-  }, [activePage, builds, currentJob, downloadedJobIds, projects, subscription, user]);
+  }, [
+    activePage,
+    builds,
+    currentJob,
+    downloadedJobIds,
+    projects,
+    subscription,
+    user,
+    designMode,
+    designConfig,
+    selectedDesignCard,
+    updateDesignCard,
+    markDesignHistoryPoint,
+  ]);
 
   if (loading) {
     return (
@@ -1203,9 +1778,26 @@ export default function App() {
   }
 
   const filesLabel = formatPackageLabel(subscription);
+  const designShellStyle = designMode
+    ? ({
+        '--design-font-family': configFontFamily(designConfig.global.fontFamily),
+        '--design-base-font-size': `${designConfig.global.baseFontSize}px`,
+        '--design-workspace-padding-x': `${designConfig.global.workspacePaddingX}px`,
+        '--design-workspace-padding-y': `${designConfig.global.workspacePaddingY}px`,
+        '--design-header-height': `${designConfig.global.headerHeight}px`,
+        '--design-sidebar-width': `${designConfig.global.sidebarWidth}px`,
+        '--design-page-bg': designConfig.global.pageBackground,
+        '--design-workspace-bg': designConfig.global.workspaceBackground,
+        '--design-header-bg': designConfig.global.headerBackground,
+        '--design-sidebar-bg': designConfig.global.sidebarBackground,
+        '--design-accent': designConfig.global.accentColor,
+        '--design-text': designConfig.global.textColor,
+        '--design-muted': designConfig.global.mutedColor,
+      } as CSSProperties)
+    : undefined;
 
   return (
-    <div className="app-shell">
+    <div className={clsx('app-shell', designMode && 'app-shell-design-open')} style={designShellStyle}>
       <TopChrome user={user} subscription={subscription} />
       <Sidebar
         active={activePage}
@@ -1241,6 +1833,21 @@ export default function App() {
           onSaved={() => {
             void refreshData();
           }}
+        />
+      ) : null}
+      {designMode && activePage === 'builder' ? (
+        <DesignLabPanel
+          config={designConfig}
+          selectedCard={selectedDesignCard}
+          canUndo={Boolean(designPast.length)}
+          canRedo={Boolean(designFuture.length)}
+          onSelectCard={setSelectedDesignCard}
+          onUpdateGlobal={updateDesignGlobal}
+          onUpdateCard={updateDesignCard}
+          onReset={resetDesignConfig}
+          onUndo={undoDesignChange}
+          onRedo={redoDesignChange}
+          onClose={() => setDesignMode(false)}
         />
       ) : null}
     </div>

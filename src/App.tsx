@@ -10,7 +10,6 @@ import {
   ChevronRight,
   CheckCircle2,
   CircleAlert,
-  Copy,
   Cpu,
   Crown,
   Download,
@@ -30,16 +29,12 @@ import {
   Maximize2,
   Minus,
   Move,
-  Palette,
-  Redo2,
-  RotateCcw,
   Search,
   Settings,
   ShieldCheck,
   SlidersHorizontal,
   Square,
   Star,
-  Undo2,
   Upload,
   UserCircle,
   UserPlus,
@@ -150,6 +145,8 @@ type DesignLabConfig = {
   cards: Record<DesignCardKey, DesignCardConfig>;
 };
 
+type WindowBounds = { x: number; y: number; width: number; height: number };
+
 const DESIGN_CARD_KEYS: DesignCardKey[] = ['upload', 'match', 'results', 'tuning', 'summary'];
 const DESIGN_CARD_LABELS: Record<DesignCardKey, string> = {
   upload: 'Upload original ECU file',
@@ -248,6 +245,292 @@ function designLabJson(config: DesignLabConfig) {
 function configFontFamily(fontFamily: string) {
   if (fontFamily === 'system-ui') return 'system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
   return `'${fontFamily}', system-ui, -apple-system, BlinkMacSystemFont, sans-serif`;
+}
+
+function designLabWindowHtml() {
+  const cardKeys = JSON.stringify(DESIGN_CARD_KEYS);
+  const cardLabels = JSON.stringify(DESIGN_CARD_LABELS);
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Apex Design Lab</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: #f4f6f7;
+      background: #080d0f;
+      font-family: Inter, Segoe UI, Arial, sans-serif;
+      font-size: 13px;
+      user-select: none;
+    }
+    .shell { min-height: 100vh; padding: 14px; }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+      margin: -14px -14px 12px;
+      border-bottom: 1px solid rgba(255,255,255,.12);
+      padding: 14px;
+      background: rgba(8,13,15,.98);
+      box-shadow: 0 10px 28px rgba(0,0,0,.35);
+    }
+    h1 { margin: 0; font-size: 20px; line-height: 1; }
+    .hint { margin-top: 4px; color: #93a2ad; font-size: 12px; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; }
+    button {
+      min-height: 34px;
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: 7px;
+      padding: 0 12px;
+      color: #f4f6f7;
+      background: #151c20;
+      font: inherit;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    button:hover { border-color: #ff8a00; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .primary { color: white; background: linear-gradient(180deg, #ff940a, #f05a00); }
+    .sections { display: grid; gap: 12px; }
+    section {
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 9px;
+      padding: 12px;
+      background: #11181b;
+    }
+    h2 {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin: 0 0 10px;
+      color: #f6f8f8;
+      font-size: 14px;
+      text-transform: uppercase;
+    }
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 7px;
+      margin-bottom: 10px;
+    }
+    .tabs button { min-height: 36px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tabs button.selected { border-color: #ff8a00; background: rgba(255,138,0,.18); }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    label.control {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+      color: #97a5af;
+      font-size: 11px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    input, select, textarea {
+      width: 100%;
+      min-width: 0;
+      height: 34px;
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: 7px;
+      outline: none;
+      padding: 0 10px;
+      color: #f4f6f7;
+      background: #0b1113;
+      font: 600 13px Inter, Segoe UI, Arial, sans-serif;
+      user-select: text;
+    }
+    input:focus, select:focus, textarea:focus { border-color: #ff8a00; box-shadow: 0 0 0 3px rgba(255,138,0,.16); }
+    .color-control {
+      grid-template-columns: 48px minmax(0, 1fr);
+      align-items: end;
+      gap: 6px 9px;
+    }
+    .color-control span { grid-column: 1 / -1; }
+    input[type="color"] {
+      width: 48px;
+      height: 34px;
+      padding: 2px;
+      cursor: pointer;
+    }
+    textarea {
+      height: 170px;
+      resize: vertical;
+      padding: 10px;
+      font: 12px Consolas, Courier New, monospace;
+      line-height: 1.45;
+    }
+    .status { color: #9fb0bc; font-size: 12px; }
+    .footer-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <div id="app" class="shell"></div>
+  <script>
+    const CARD_KEYS = ${cardKeys};
+    const CARD_LABELS = ${cardLabels};
+    const FONT_OPTIONS = ['Roboto Condensed', 'Inter', 'Segoe UI', 'Bahnschrift', 'Arial Narrow', 'Arial', 'Tahoma', 'system-ui'];
+    let state = null;
+    let copiedTimer = null;
+
+    function send(type, payload) {
+      window.opener && window.opener.postMessage({ source: 'apex-design-lab', type, ...(payload || {}) }, '*');
+    }
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+    }
+    function control(label, kind, field, value, options) {
+      const opts = options || {};
+      if (opts.type === 'select') {
+        return '<label class="control"><span>' + escapeHtml(label) + '</span><select data-kind="' + kind + '" data-field="' + field + '">' +
+          opts.options.map((option) => '<option ' + (option === value ? 'selected' : '') + '>' + escapeHtml(option) + '</option>').join('') +
+          '</select></label>';
+      }
+      return '<label class="control"><span>' + escapeHtml(label) + '</span><input type="number" data-kind="' + kind + '" data-field="' + field + '" value="' + escapeHtml(value) + '" min="' + (opts.min ?? '') + '" max="' + (opts.max ?? '') + '" step="' + (opts.step ?? 1) + '" /></label>';
+    }
+    function color(label, kind, field, value) {
+      const safe = /^#[0-9a-fA-F]{6}$/.test(value || '') ? value : '#000000';
+      return '<label class="control color-control"><span>' + escapeHtml(label) + '</span><input type="color" data-kind="' + kind + '" data-field="' + field + '" value="' + safe + '" /><input data-kind="' + kind + '" data-field="' + field + '" value="' + escapeHtml(value) + '" /></label>';
+    }
+    function exportJson() {
+      return JSON.stringify(state ? state.config : {}, null, 2);
+    }
+    function render() {
+      if (!state) {
+        document.getElementById('app').innerHTML = '<header><div><h1>Apex Design Lab</h1><div class="hint">Waiting for Apex Files...</div></div></header>';
+        return;
+      }
+      const config = state.config;
+      const global = config.global;
+      const card = config.cards[state.selectedCard];
+      const bounds = state.windowBounds || { width: 0, height: 0, x: 0, y: 0 };
+      document.getElementById('app').innerHTML =
+        '<header><div><h1>Apex Design Lab</h1><div class="hint">Changes stay applied when this window closes. Send the JSON when ready.</div></div>' +
+        '<div class="toolbar"><button data-action="undo" ' + (!state.canUndo ? 'disabled' : '') + '>Undo</button><button data-action="redo" ' + (!state.canRedo ? 'disabled' : '') + '>Redo</button><button data-action="reset">Reset</button><button data-action="close">Close</button></div></header>' +
+        '<div class="sections">' +
+        '<section><h2>Window</h2><div class="grid">' +
+          control('Window width', 'window', 'width', bounds.width || 0, { min: 900, max: 2600 }) +
+          control('Window height', 'window', 'height', bounds.height || 0, { min: 700, max: 1600 }) +
+          control('Window X', 'window', 'x', bounds.x || 0, { min: -3000, max: 3000 }) +
+          control('Window Y', 'window', 'y', bounds.y || 0, { min: -3000, max: 3000 }) +
+        '</div></section>' +
+        '<section><h2>Global</h2><div class="grid">' +
+          control('Font family', 'global', 'fontFamily', global.fontFamily, { type: 'select', options: FONT_OPTIONS }) +
+          control('Base font', 'global', 'baseFontSize', global.baseFontSize, { min: 9, max: 24 }) +
+          control('Title font', 'global', 'titleFontSize', global.titleFontSize, { min: 9, max: 30 }) +
+          control('Label font', 'global', 'labelFontSize', global.labelFontSize, { min: 8, max: 20 }) +
+          control('Header height', 'global', 'headerHeight', global.headerHeight, { min: 58, max: 140 }) +
+          control('Sidebar width', 'global', 'sidebarWidth', global.sidebarWidth, { min: 150, max: 380 }) +
+          control('Workspace pad X', 'global', 'workspacePaddingX', global.workspacePaddingX, { min: 0, max: 80 }) +
+          control('Workspace pad Y', 'global', 'workspacePaddingY', global.workspacePaddingY, { min: 0, max: 80 }) +
+          control('Grid gap', 'global', 'gridGap', global.gridGap, { min: 0, max: 40 }) +
+          control('Top row height', 'global', 'topRowHeight', global.topRowHeight, { min: 220, max: 620 }) +
+          control('Lower row height', 'global', 'lowerRowMinHeight', global.lowerRowMinHeight, { min: 220, max: 760 }) +
+          control('Column 1', 'global', 'cardColumnOne', global.cardColumnOne, { min: .4, max: 2.6, step: .01 }) +
+          control('Column 2', 'global', 'cardColumnTwo', global.cardColumnTwo, { min: .3, max: 2, step: .01 }) +
+          control('Column 3', 'global', 'cardColumnThree', global.cardColumnThree, { min: .4, max: 2.8, step: .01 }) +
+        '</div><div class="grid">' +
+          color('Page background', 'global', 'pageBackground', global.pageBackground) +
+          color('Workspace background', 'global', 'workspaceBackground', global.workspaceBackground) +
+          color('Header background', 'global', 'headerBackground', global.headerBackground) +
+          color('Sidebar background', 'global', 'sidebarBackground', global.sidebarBackground) +
+          color('Accent', 'global', 'accentColor', global.accentColor) +
+          color('Text', 'global', 'textColor', global.textColor) +
+          color('Muted', 'global', 'mutedColor', global.mutedColor) +
+        '</div></section>' +
+        '<section><h2>Containers <span class="status">' + escapeHtml(CARD_LABELS[state.selectedCard]) + '</span></h2><div class="tabs">' +
+          CARD_KEYS.map((key) => '<button data-card="' + key + '" class="' + (key === state.selectedCard ? 'selected' : '') + '">' + escapeHtml(CARD_LABELS[key]) + '</button>').join('') +
+        '</div><div class="grid">' +
+          control('X offset', 'card', 'x', card.x, { min: -800, max: 800 }) +
+          control('Y offset', 'card', 'y', card.y, { min: -800, max: 800 }) +
+          control('Width (0 auto)', 'card', 'width', card.width, { min: 0, max: 1600 }) +
+          control('Height', 'card', 'height', card.height, { min: 120, max: 1000 }) +
+          control('Padding', 'card', 'padding', card.padding, { min: 0, max: 80 }) +
+          control('Radius', 'card', 'radius', card.radius, { min: 0, max: 40 }) +
+          control('Border width', 'card', 'borderWidth', card.borderWidth, { min: 0, max: 8 }) +
+          control('Content gap', 'card', 'contentGap', card.contentGap, { min: 0, max: 60 }) +
+          control('Font size', 'card', 'fontSize', card.fontSize, { min: 8, max: 28 }) +
+          control('Title size', 'card', 'titleSize', card.titleSize, { min: 8, max: 34 }) +
+          control('Label size', 'card', 'labelSize', card.labelSize, { min: 8, max: 22 }) +
+          control('Shadow', 'card', 'shadowOpacity', card.shadowOpacity, { min: 0, max: .9, step: .01 }) +
+        '</div><div class="grid">' +
+          color('Background', 'card', 'background', card.background) +
+          color('Inner background', 'card', 'innerBackground', card.innerBackground) +
+          color('Border color', 'card', 'borderColor', card.borderColor) +
+          color('Text', 'card', 'textColor', card.textColor) +
+          color('Muted', 'card', 'mutedColor', card.mutedColor) +
+          color('Title', 'card', 'titleColor', card.titleColor) +
+        '</div></section>' +
+        '<section><h2>Export</h2><textarea id="export" readonly>' + escapeHtml(exportJson()) + '</textarea><div class="footer-actions"><button class="primary" data-action="copy">Copy JSON</button><button data-action="refresh">Refresh</button></div><div id="copyStatus" class="hint"></div></section>' +
+        '</div>';
+      wire();
+    }
+    function updateLocal(kind, field, value) {
+      if (!state) return;
+      if (kind === 'global') state.config.global[field] = value;
+      if (kind === 'card') state.config.cards[state.selectedCard][field] = value;
+      if (kind === 'window') state.windowBounds = { ...(state.windowBounds || {}), [field]: value };
+      const exportBox = document.getElementById('export');
+      if (exportBox) exportBox.value = exportJson();
+    }
+    function wire() {
+      document.querySelectorAll('[data-action]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const action = button.getAttribute('data-action');
+          if (action === 'copy') {
+            navigator.clipboard.writeText(exportJson());
+            document.getElementById('copyStatus').textContent = 'Copied JSON.';
+            clearTimeout(copiedTimer);
+            copiedTimer = setTimeout(() => document.getElementById('copyStatus').textContent = '', 1400);
+            return;
+          }
+          if (action === 'refresh') { send('request-state'); return; }
+          send(action);
+        });
+      });
+      document.querySelectorAll('[data-card]').forEach((button) => {
+        button.addEventListener('click', () => send('select-card', { key: button.getAttribute('data-card') }));
+      });
+      document.querySelectorAll('input[data-kind], select[data-kind]').forEach((input) => {
+        const handler = () => {
+          const kind = input.getAttribute('data-kind');
+          const field = input.getAttribute('data-field');
+          let value = input.value;
+          if (input.type === 'number') value = Number(value);
+          if (input.type === 'text' && field && /color|background/i.test(field) && !/^#[0-9a-fA-F]{6}$/.test(value)) return;
+          updateLocal(kind, field, value);
+          if (kind === 'global') send('update-global', { patch: { [field]: value } });
+          if (kind === 'card') send('update-card', { key: state.selectedCard, patch: { [field]: value } });
+          if (kind === 'window') send('set-window-bounds', { bounds: { [field]: value } });
+        };
+        input.addEventListener('input', handler);
+        input.addEventListener('change', handler);
+      });
+    }
+    window.addEventListener('message', (event) => {
+      const data = event.data || {};
+      if (data.source !== 'apex-design-lab-host') return;
+      state = data;
+      const active = document.activeElement;
+      if (active && ['INPUT', 'SELECT', 'TEXTAREA'].includes(active.tagName)) {
+        const exportBox = document.getElementById('export');
+        if (exportBox) exportBox.value = exportJson();
+        return;
+      }
+      render();
+    });
+    window.addEventListener('beforeunload', () => send('closed'));
+    render();
+    send('request-state');
+  </script>
+</body>
+</html>`;
 }
 
 function userFacingError(reason: unknown, fallback: string) {
@@ -637,203 +920,6 @@ function ModalShell({
   );
 }
 
-function NumberControl({
-  label,
-  value,
-  min,
-  max,
-  step = 1,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step?: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <label className="design-control">
-      <span>{label}</span>
-      <input
-        type="number"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-      />
-    </label>
-  );
-}
-
-function ColorControl({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return (
-    <label className="design-control design-color-control">
-      <span>{label}</span>
-      <input type="color" value={value} onChange={(event) => onChange(event.target.value)} />
-      <input value={value} onChange={(event) => onChange(event.target.value)} />
-    </label>
-  );
-}
-
-function DesignLabPanel({
-  config,
-  selectedCard,
-  canUndo,
-  canRedo,
-  onSelectCard,
-  onUpdateGlobal,
-  onUpdateCard,
-  onReset,
-  onUndo,
-  onRedo,
-  onClose,
-}: {
-  config: DesignLabConfig;
-  selectedCard: DesignCardKey;
-  canUndo: boolean;
-  canRedo: boolean;
-  onSelectCard: (key: DesignCardKey) => void;
-  onUpdateGlobal: (patch: Partial<DesignLabConfig['global']>) => void;
-  onUpdateCard: (key: DesignCardKey, patch: Partial<DesignCardConfig>) => void;
-  onReset: () => void;
-  onUndo: () => void;
-  onRedo: () => void;
-  onClose: () => void;
-}) {
-  const [copied, setCopied] = useState(false);
-  const card = config.cards[selectedCard];
-  const exportJson = useMemo(() => designLabJson(config), [config]);
-
-  async function copyConfig() {
-    await navigator.clipboard.writeText(exportJson);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1400);
-  }
-
-  return (
-    <aside className="design-lab-panel app-no-drag" aria-label="Design controls">
-      <div className="design-lab-header">
-        <div>
-          <span>Temporary control</span>
-          <strong>Design Lab</strong>
-        </div>
-        <button type="button" className="icon-action" onClick={onClose} title="Close design lab">
-          <X size={15} />
-        </button>
-      </div>
-
-      <div className="design-lab-toolbar">
-        <button type="button" onClick={onUndo} disabled={!canUndo}>
-          <Undo2 size={14} />
-          Undo
-        </button>
-        <button type="button" onClick={onRedo} disabled={!canRedo}>
-          <Redo2 size={14} />
-          Redo
-        </button>
-        <button type="button" onClick={onReset}>
-          <RotateCcw size={14} />
-          Reset
-        </button>
-      </div>
-
-      <div className="design-section">
-        <h3>
-          <Palette size={14} />
-          Global
-        </h3>
-        <label className="design-control">
-          <span>Font family</span>
-          <select value={config.global.fontFamily} onChange={(event) => onUpdateGlobal({ fontFamily: event.target.value })}>
-            <option>Roboto Condensed</option>
-            <option>Inter</option>
-            <option>Segoe UI</option>
-            <option>Bahnschrift</option>
-            <option>Arial Narrow</option>
-            <option>Arial</option>
-            <option>Tahoma</option>
-            <option>system-ui</option>
-          </select>
-        </label>
-        <div className="design-control-grid">
-          <NumberControl label="Base font" value={config.global.baseFontSize} min={9} max={22} onChange={(value) => onUpdateGlobal({ baseFontSize: value })} />
-          <NumberControl label="Title font" value={config.global.titleFontSize} min={9} max={26} onChange={(value) => onUpdateGlobal({ titleFontSize: value })} />
-          <NumberControl label="Label font" value={config.global.labelFontSize} min={8} max={18} onChange={(value) => onUpdateGlobal({ labelFontSize: value })} />
-          <NumberControl label="Grid gap" value={config.global.gridGap} min={0} max={28} onChange={(value) => onUpdateGlobal({ gridGap: value })} />
-          <NumberControl label="Top row" value={config.global.topRowHeight} min={260} max={520} onChange={(value) => onUpdateGlobal({ topRowHeight: value })} />
-          <NumberControl label="Lower row" value={config.global.lowerRowMinHeight} min={240} max={620} onChange={(value) => onUpdateGlobal({ lowerRowMinHeight: value })} />
-          <NumberControl label="Header h" value={config.global.headerHeight} min={58} max={128} onChange={(value) => onUpdateGlobal({ headerHeight: value })} />
-          <NumberControl label="Sidebar w" value={config.global.sidebarWidth} min={170} max={340} onChange={(value) => onUpdateGlobal({ sidebarWidth: value })} />
-          <NumberControl label="Pad X" value={config.global.workspacePaddingX} min={0} max={48} onChange={(value) => onUpdateGlobal({ workspacePaddingX: value })} />
-          <NumberControl label="Pad Y" value={config.global.workspacePaddingY} min={0} max={48} onChange={(value) => onUpdateGlobal({ workspacePaddingY: value })} />
-          <NumberControl label="Col 1" value={config.global.cardColumnOne} min={0.6} max={2.2} step={0.01} onChange={(value) => onUpdateGlobal({ cardColumnOne: value })} />
-          <NumberControl label="Col 2" value={config.global.cardColumnTwo} min={0.4} max={1.6} step={0.01} onChange={(value) => onUpdateGlobal({ cardColumnTwo: value })} />
-          <NumberControl label="Col 3" value={config.global.cardColumnThree} min={0.6} max={2.4} step={0.01} onChange={(value) => onUpdateGlobal({ cardColumnThree: value })} />
-        </div>
-        <div className="design-control-grid">
-          <ColorControl label="Page bg" value={config.global.pageBackground} onChange={(value) => onUpdateGlobal({ pageBackground: value })} />
-          <ColorControl label="Workspace bg" value={config.global.workspaceBackground} onChange={(value) => onUpdateGlobal({ workspaceBackground: value })} />
-          <ColorControl label="Header bg" value={config.global.headerBackground} onChange={(value) => onUpdateGlobal({ headerBackground: value })} />
-          <ColorControl label="Sidebar bg" value={config.global.sidebarBackground} onChange={(value) => onUpdateGlobal({ sidebarBackground: value })} />
-          <ColorControl label="Accent" value={config.global.accentColor} onChange={(value) => onUpdateGlobal({ accentColor: value })} />
-          <ColorControl label="Text" value={config.global.textColor} onChange={(value) => onUpdateGlobal({ textColor: value })} />
-          <ColorControl label="Muted" value={config.global.mutedColor} onChange={(value) => onUpdateGlobal({ mutedColor: value })} />
-        </div>
-      </div>
-
-      <div className="design-section">
-        <h3>
-          <Move size={14} />
-          Container
-        </h3>
-        <div className="design-card-tabs">
-          {DESIGN_CARD_KEYS.map((key) => (
-            <button type="button" key={key} className={clsx(key === selectedCard && 'selected')} onClick={() => onSelectCard(key)}>
-              {DESIGN_CARD_LABELS[key].replace(' original ECU file', '').replace(' versions & options', '')}
-            </button>
-          ))}
-        </div>
-        <div className="design-control-grid">
-          <NumberControl label="X" value={card.x} min={-500} max={500} onChange={(value) => onUpdateCard(selectedCard, { x: value })} />
-          <NumberControl label="Y" value={card.y} min={-500} max={500} onChange={(value) => onUpdateCard(selectedCard, { y: value })} />
-          <NumberControl label="Width (0 auto)" value={card.width} min={0} max={1200} onChange={(value) => onUpdateCard(selectedCard, { width: value })} />
-          <NumberControl label="Height" value={card.height} min={180} max={820} onChange={(value) => onUpdateCard(selectedCard, { height: value })} />
-          <NumberControl label="Padding" value={card.padding} min={0} max={48} onChange={(value) => onUpdateCard(selectedCard, { padding: value })} />
-          <NumberControl label="Radius" value={card.radius} min={0} max={32} onChange={(value) => onUpdateCard(selectedCard, { radius: value })} />
-          <NumberControl label="Border" value={card.borderWidth} min={0} max={6} onChange={(value) => onUpdateCard(selectedCard, { borderWidth: value })} />
-          <NumberControl label="Gap" value={card.contentGap} min={0} max={36} onChange={(value) => onUpdateCard(selectedCard, { contentGap: value })} />
-          <NumberControl label="Font" value={card.fontSize} min={9} max={24} onChange={(value) => onUpdateCard(selectedCard, { fontSize: value })} />
-          <NumberControl label="Title font" value={card.titleSize} min={9} max={28} onChange={(value) => onUpdateCard(selectedCard, { titleSize: value })} />
-          <NumberControl label="Label font" value={card.labelSize} min={8} max={18} onChange={(value) => onUpdateCard(selectedCard, { labelSize: value })} />
-          <NumberControl label="Shadow" value={card.shadowOpacity} min={0} max={0.8} step={0.01} onChange={(value) => onUpdateCard(selectedCard, { shadowOpacity: value })} />
-        </div>
-        <div className="design-control-grid">
-          <ColorControl label="Background" value={card.background} onChange={(value) => onUpdateCard(selectedCard, { background: value })} />
-          <ColorControl label="Inner bg" value={card.innerBackground} onChange={(value) => onUpdateCard(selectedCard, { innerBackground: value })} />
-          <ColorControl label="Border color" value={card.borderColor} onChange={(value) => onUpdateCard(selectedCard, { borderColor: value })} />
-          <ColorControl label="Text" value={card.textColor} onChange={(value) => onUpdateCard(selectedCard, { textColor: value })} />
-          <ColorControl label="Muted" value={card.mutedColor} onChange={(value) => onUpdateCard(selectedCard, { mutedColor: value })} />
-          <ColorControl label="Title" value={card.titleColor} onChange={(value) => onUpdateCard(selectedCard, { titleColor: value })} />
-        </div>
-      </div>
-
-      <div className="design-section">
-        <h3>
-          <Copy size={14} />
-          Export
-        </h3>
-        <textarea className="design-export" readOnly value={exportJson} />
-        <button type="button" className="primary-action design-copy-action" onClick={() => void copyConfig()}>
-          <Copy size={15} />
-          {copied ? 'Copied' : 'Copy JSON'}
-        </button>
-      </div>
-    </aside>
-  );
-}
-
 function BuildDeliveryModal({
   job,
   onClose,
@@ -982,9 +1068,11 @@ function BuilderPage({
   currentJob,
   deliveryReady,
   designMode,
+  designActive,
   designConfig,
   selectedDesignCard,
   onSelectDesignCard,
+  onDesignGlobalChange,
   onDesignCardChange,
   onDesignHistoryPoint,
   onOpenDelivery,
@@ -993,9 +1081,11 @@ function BuilderPage({
   currentJob: BuildJob | null;
   deliveryReady: boolean;
   designMode: boolean;
+  designActive: boolean;
   designConfig: DesignLabConfig;
   selectedDesignCard: DesignCardKey;
   onSelectDesignCard: (key: DesignCardKey) => void;
+  onDesignGlobalChange: (patch: Partial<DesignLabConfig['global']>, recordHistory?: boolean) => void;
   onDesignCardChange: (key: DesignCardKey, patch: Partial<DesignCardConfig>, recordHistory?: boolean) => void;
   onDesignHistoryPoint: () => void;
   onOpenDelivery: () => void;
@@ -1102,7 +1192,7 @@ function BuilderPage({
         : file
           ? 'Ready to match'
           : 'Choose a file to start';
-  const designVars = designMode
+  const designVars = designActive
     ? ({
         '--design-font-family': configFontFamily(designConfig.global.fontFamily),
         '--design-base-font-size': `${designConfig.global.baseFontSize}px`,
@@ -1129,7 +1219,7 @@ function BuilderPage({
     : undefined;
 
   function designCardStyle(key: DesignCardKey): CSSProperties | undefined {
-    if (!designMode) return undefined;
+    if (!designActive) return undefined;
     const card = designConfig.cards[key];
     return {
       transform: `translate(${card.x}px, ${card.y}px)`,
@@ -1181,6 +1271,55 @@ function BuilderPage({
     window.addEventListener('pointerup', onUp, { once: true });
   }
 
+  function startDesignResize(key: DesignCardKey, event: ReactPointerEvent<HTMLButtonElement>) {
+    if (!designMode) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onSelectDesignCard(key);
+    onDesignHistoryPoint();
+    const cardElement = event.currentTarget.closest('.service-card') as HTMLElement | null;
+    const rect = cardElement?.getBoundingClientRect();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startCard = designConfig.cards[key];
+    const startWidth = startCard.width || Math.round(rect?.width || 360);
+    const startHeight = startCard.height || Math.round(rect?.height || 300);
+    const onMove = (moveEvent: PointerEvent) => {
+      onDesignCardChange(
+        key,
+        {
+          width: Math.max(120, Math.round(startWidth + moveEvent.clientX - startX)),
+          height: Math.max(120, Math.round(startHeight + moveEvent.clientY - startY)),
+        },
+        false,
+      );
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp, { once: true });
+  }
+
+  function startRowResize(field: 'topRowHeight' | 'lowerRowMinHeight', event: ReactPointerEvent<HTMLButtonElement>) {
+    if (!designMode) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onDesignHistoryPoint();
+    const startY = event.clientY;
+    const startValue = designConfig.global[field];
+    const onMove = (moveEvent: PointerEvent) => {
+      onDesignGlobalChange({ [field]: Math.max(160, Math.round(startValue + moveEvent.clientY - startY)) }, false);
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp, { once: true });
+  }
+
   function designCardClass(key: DesignCardKey, className: string) {
     return clsx(className, designMode && 'design-editable-card', designMode && selectedDesignCard === key && 'design-selected-card');
   }
@@ -1188,22 +1327,53 @@ function BuilderPage({
   function renderDesignHandle(cardKey: DesignCardKey) {
     if (!designMode) return null;
     return (
-      <button
-        type="button"
-        className="design-card-handle app-no-drag"
-        title={`Drag ${DESIGN_CARD_LABELS[cardKey]}`}
-        onPointerDown={(event) => startDesignDrag(cardKey, event)}
-        onClick={() => onSelectDesignCard(cardKey)}
-      >
-        <Move size={13} />
-        <span>{DESIGN_CARD_LABELS[cardKey]}</span>
-      </button>
+      <>
+        <button
+          type="button"
+          className="design-card-handle app-no-drag"
+          title={`Drag ${DESIGN_CARD_LABELS[cardKey]}`}
+          onPointerDown={(event) => startDesignDrag(cardKey, event)}
+          onClick={() => onSelectDesignCard(cardKey)}
+        >
+          <Move size={13} />
+          <span>{DESIGN_CARD_LABELS[cardKey]}</span>
+        </button>
+        <button
+          type="button"
+          className="design-card-resize-handle app-no-drag"
+          title={`Resize ${DESIGN_CARD_LABELS[cardKey]}`}
+          onPointerDown={(event) => startDesignResize(cardKey, event)}
+          onClick={() => onSelectDesignCard(cardKey)}
+        >
+          <Maximize2 size={13} />
+        </button>
+      </>
     );
   }
 
   return (
     <>
-      <div className={clsx('builder-layout', designMode && 'design-lab-active')} style={designVars}>
+      <div className={clsx('builder-layout', designActive && 'design-lab-active')} style={designVars}>
+        {designMode ? (
+          <>
+            <button
+              type="button"
+              className="design-row-resize-handle design-top-row-resize app-no-drag"
+              style={{ top: `${designConfig.global.topRowHeight + designConfig.global.gridGap / 2}px` }}
+              onPointerDown={(event) => startRowResize('topRowHeight', event)}
+            >
+              Top row {designConfig.global.topRowHeight}px
+            </button>
+            <button
+              type="button"
+              className="design-row-resize-handle design-lower-row-resize app-no-drag"
+              style={{ top: `${designConfig.global.topRowHeight + designConfig.global.gridGap + designConfig.global.lowerRowMinHeight}px` }}
+              onPointerDown={(event) => startRowResize('lowerRowMinHeight', event)}
+            >
+              Lower row {designConfig.global.lowerRowMinHeight}px
+            </button>
+          </>
+        ) : null}
         <div className="file-service-grid">
           <section className={designCardClass('upload', 'service-card upload-service-card')} style={designCardStyle('upload')} onClick={() => designMode && onSelectDesignCard('upload')}>
             {renderDesignHandle('upload')}
@@ -1586,11 +1756,14 @@ export default function App() {
   const [downloadedJobIds, setDownloadedJobIds] = useState<Set<string>>(() => new Set());
   const [deliveryOpen, setDeliveryOpen] = useState(false);
   const [designMode, setDesignMode] = useState(false);
+  const [designPreviewActive, setDesignPreviewActive] = useState(() => Boolean(localStorage.getItem(DESIGN_LAB_STORAGE_KEY)));
   const [designConfig, setDesignConfig] = useState<DesignLabConfig>(() => readDesignLabConfig());
   const [selectedDesignCard, setSelectedDesignCard] = useState<DesignCardKey>('upload');
   const [designPast, setDesignPast] = useState<DesignLabConfig[]>([]);
   const [designFuture, setDesignFuture] = useState<DesignLabConfig[]>([]);
+  const [windowBounds, setWindowBounds] = useState<WindowBounds | null>(null);
   const lastReadyJobId = useRef<string | null>(null);
+  const designWindowRef = useRef<Window | null>(null);
 
   async function refreshData() {
     const [subscriptionData, projectsData, buildsData] = await Promise.all([
@@ -1644,6 +1817,7 @@ export default function App() {
   }, [designConfig]);
 
   const updateDesignConfig = useCallback((mutator: (draft: DesignLabConfig) => void, recordHistory = true) => {
+    setDesignPreviewActive(true);
     setDesignConfig((current) => {
       const next = cloneDesignConfig(current);
       mutator(next);
@@ -1660,10 +1834,10 @@ export default function App() {
     setDesignFuture([]);
   }, [designConfig]);
 
-  const updateDesignGlobal = useCallback((patch: Partial<DesignLabConfig['global']>) => {
+  const updateDesignGlobal = useCallback((patch: Partial<DesignLabConfig['global']>, recordHistory = true) => {
     updateDesignConfig((draft) => {
       draft.global = { ...draft.global, ...patch };
-    });
+    }, recordHistory);
   }, [updateDesignConfig]);
 
   const updateDesignCard = useCallback((key: DesignCardKey, patch: Partial<DesignCardConfig>, recordHistory = true) => {
@@ -1695,12 +1869,122 @@ export default function App() {
     setSelectedDesignCard('upload');
   }, [updateDesignConfig]);
 
+  const postDesignLabState = useCallback((target = designWindowRef.current) => {
+    if (!target || target.closed) return;
+    target.postMessage(
+      {
+        source: 'apex-design-lab-host',
+        config: designConfig,
+        selectedCard: selectedDesignCard,
+        canUndo: Boolean(designPast.length),
+        canRedo: Boolean(designFuture.length),
+        windowBounds,
+      },
+      '*',
+    );
+  }, [designConfig, selectedDesignCard, designPast.length, designFuture.length, windowBounds]);
+
+  useEffect(() => {
+    if (!designMode) {
+      if (designWindowRef.current && !designWindowRef.current.closed) designWindowRef.current.close();
+      designWindowRef.current = null;
+      return;
+    }
+
+    const popup = window.open('', 'apex-files-design-lab', 'width=560,height=960,left=60,top=60,resizable=yes,scrollbars=yes');
+    if (!popup) return;
+    designWindowRef.current = popup;
+    popup.document.open();
+    popup.document.write(designLabWindowHtml());
+    popup.document.close();
+    popup.focus();
+    void window.apex?.getBounds().then((bounds) => {
+      if (bounds) setWindowBounds(bounds);
+    });
+    const timer = window.setInterval(() => {
+      if (popup.closed) {
+        window.clearInterval(timer);
+        designWindowRef.current = null;
+        setDesignMode(false);
+      }
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [designMode]);
+
+  useEffect(() => {
+    postDesignLabState();
+  }, [postDesignLabState]);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as {
+        source?: string;
+        type?: string;
+        key?: DesignCardKey;
+        patch?: Partial<DesignLabConfig['global']> | Partial<DesignCardConfig>;
+        bounds?: Partial<WindowBounds>;
+      };
+      if (data?.source !== 'apex-design-lab') return;
+      if (data.type === 'closed') {
+        designWindowRef.current = null;
+        setDesignMode(false);
+        return;
+      }
+      if (data.type === 'close') {
+        setDesignMode(false);
+        return;
+      }
+      if (data.type === 'request-state') {
+        void window.apex?.getBounds().then((bounds) => {
+          if (bounds) setWindowBounds(bounds);
+          window.setTimeout(() => postDesignLabState(), 0);
+        });
+        return;
+      }
+      if (data.type === 'select-card' && data.key && DESIGN_CARD_KEYS.includes(data.key)) {
+        setSelectedDesignCard(data.key);
+        return;
+      }
+      if (data.type === 'update-global' && data.patch) {
+        updateDesignGlobal(data.patch as Partial<DesignLabConfig['global']>);
+        return;
+      }
+      if (data.type === 'update-card' && data.key && DESIGN_CARD_KEYS.includes(data.key) && data.patch) {
+        updateDesignCard(data.key, data.patch as Partial<DesignCardConfig>);
+        return;
+      }
+      if (data.type === 'undo') {
+        undoDesignChange();
+        return;
+      }
+      if (data.type === 'redo') {
+        redoDesignChange();
+        return;
+      }
+      if (data.type === 'reset') {
+        resetDesignConfig();
+        return;
+      }
+      if (data.type === 'set-window-bounds' && data.bounds) {
+        void window.apex?.setBounds(data.bounds).then((bounds) => {
+          if (bounds) setWindowBounds(bounds);
+        });
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [postDesignLabState, updateDesignGlobal, updateDesignCard, undoDesignChange, redoDesignChange, resetDesignConfig]);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const commandKey = event.ctrlKey || event.metaKey;
       if (commandKey && event.shiftKey && event.key.toLowerCase() === 'd') {
         event.preventDefault();
-        setDesignMode((current) => !current);
+        setDesignMode((current) => {
+          const next = !current;
+          if (next) setDesignPreviewActive(true);
+          return next;
+        });
         return;
       }
       if (!designMode || !commandKey) return;
@@ -1725,9 +2009,11 @@ export default function App() {
         currentJob={currentJob}
         deliveryReady={Boolean(currentJob && downloadedJobIds.has(currentJob.id))}
         designMode={designMode}
+        designActive={designPreviewActive}
         designConfig={designConfig}
         selectedDesignCard={selectedDesignCard}
         onSelectDesignCard={setSelectedDesignCard}
+        onDesignGlobalChange={updateDesignGlobal}
         onDesignCardChange={updateDesignCard}
         onDesignHistoryPoint={markDesignHistoryPoint}
         onOpenDelivery={() => setDeliveryOpen(true)}
@@ -1748,8 +2034,10 @@ export default function App() {
     subscription,
     user,
     designMode,
+    designPreviewActive,
     designConfig,
     selectedDesignCard,
+    updateDesignGlobal,
     updateDesignCard,
     markDesignHistoryPoint,
   ]);
@@ -1778,7 +2066,7 @@ export default function App() {
   }
 
   const filesLabel = formatPackageLabel(subscription);
-  const designShellStyle = designMode
+  const designShellStyle = designPreviewActive
     ? ({
         '--design-font-family': configFontFamily(designConfig.global.fontFamily),
         '--design-base-font-size': `${designConfig.global.baseFontSize}px`,
@@ -1797,7 +2085,7 @@ export default function App() {
     : undefined;
 
   return (
-    <div className={clsx('app-shell', designMode && 'app-shell-design-open')} style={designShellStyle}>
+    <div className={clsx('app-shell', designPreviewActive && 'app-shell-design-open')} style={designShellStyle}>
       <TopChrome user={user} subscription={subscription} />
       <Sidebar
         active={activePage}
@@ -1833,21 +2121,6 @@ export default function App() {
           onSaved={() => {
             void refreshData();
           }}
-        />
-      ) : null}
-      {designMode && activePage === 'builder' ? (
-        <DesignLabPanel
-          config={designConfig}
-          selectedCard={selectedDesignCard}
-          canUndo={Boolean(designPast.length)}
-          canRedo={Boolean(designFuture.length)}
-          onSelectCard={setSelectedDesignCard}
-          onUpdateGlobal={updateDesignGlobal}
-          onUpdateCard={updateDesignCard}
-          onReset={resetDesignConfig}
-          onUndo={undoDesignChange}
-          onRedo={redoDesignChange}
-          onClose={() => setDesignMode(false)}
         />
       ) : null}
     </div>

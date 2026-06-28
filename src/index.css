@@ -3329,6 +3329,7 @@ textarea:focus {
 }
 
 .design-lab-active {
+  position: relative;
   padding: 0;
   color: var(--design-text);
   background: transparent;
@@ -3457,6 +3458,50 @@ textarea:focus {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.design-card-resize-handle {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 31;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  min-height: 28px;
+  border: 1px solid rgba(255, 138, 0, 0.7);
+  border-radius: 5px;
+  color: white;
+  background: rgba(9, 13, 15, 0.94);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.34);
+  cursor: nwse-resize;
+}
+
+.design-row-resize-handle {
+  position: absolute;
+  right: 12px;
+  z-index: 40;
+  min-height: 24px;
+  border: 1px solid rgba(255, 138, 0, 0.7);
+  border-radius: 999px;
+  padding: 0 11px;
+  color: white;
+  background: rgba(9, 13, 15, 0.95);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.42);
+  cursor: ns-resize;
+}
+
+.design-row-resize-handle::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 100%;
+  width: min(720px, 55vw);
+  height: 1px;
+  background: rgba(255, 138, 0, 0.42);
 }
 
 .design-lab-panel {

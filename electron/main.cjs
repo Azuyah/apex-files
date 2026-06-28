@@ -33,6 +33,23 @@ function createWindow() {
 
   Menu.setApplicationMenu(null);
 
+  mainWindow.webContents.setWindowOpenHandler(() => ({
+    action: 'allow',
+    overrideBrowserWindowOptions: {
+      width: 560,
+      height: 960,
+      minWidth: 460,
+      minHeight: 620,
+      frame: true,
+      autoHideMenuBar: true,
+      backgroundColor: '#080d0f',
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    },
+  }));
+
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
   });
@@ -71,3 +88,16 @@ ipcMain.handle('window:maximize-toggle', () => {
   return true;
 });
 ipcMain.handle('window:close', () => mainWindow?.close());
+ipcMain.handle('window:get-bounds', () => mainWindow?.getBounds() || null);
+ipcMain.handle('window:set-bounds', (_event, bounds = {}) => {
+  if (!mainWindow) return null;
+  const current = mainWindow.getBounds();
+  const next = {
+    x: Number.isFinite(bounds.x) ? Math.round(bounds.x) : current.x,
+    y: Number.isFinite(bounds.y) ? Math.round(bounds.y) : current.y,
+    width: Number.isFinite(bounds.width) ? Math.max(900, Math.round(bounds.width)) : current.width,
+    height: Number.isFinite(bounds.height) ? Math.max(700, Math.round(bounds.height)) : current.height,
+  };
+  mainWindow.setBounds(next, true);
+  return mainWindow.getBounds();
+});

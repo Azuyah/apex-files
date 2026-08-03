@@ -14,6 +14,12 @@ from ..security import create_token, hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+PACKAGE_PLANS = {
+    "free": ("Apex Free", 1),
+    "lite": ("Apex Lite", 20),
+    "pro": ("Apex Pro", 9999),
+}
+
 
 def _default_period_end():
     return utcnow() + timedelta(days=30)
@@ -25,19 +31,25 @@ def register(payload: AuthRegisterIn, db: Session = Depends(get_db)) -> AuthOut:
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An account already exists for this email")
 
+    package_key = payload.package_key if payload.package_key in PACKAGE_PLANS else "free"
+    plan_name, monthly_file_limit = PACKAGE_PLANS[package_key]
     user = User(
         email=payload.email.lower(),
         password_hash=hash_password(payload.password),
         display_name=payload.display_name.strip(),
         company_name=payload.company_name.strip(),
+        vat_number=payload.vat_number.strip(),
+        phone_number=payload.phone_number.strip(),
+        country=payload.country.strip(),
+        selected_package=package_key,
     )
     db.add(user)
     db.flush()
     db.add(
         Subscription(
             user_id=user.id,
-            plan_name="Apex Launch",
-            monthly_file_limit=25,
+            plan_name=plan_name,
+            monthly_file_limit=monthly_file_limit,
             period_ends_at=_default_period_end(),
         )
     )

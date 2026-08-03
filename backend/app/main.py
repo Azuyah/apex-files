@@ -29,6 +29,8 @@ app.add_middleware(
 def on_startup() -> None:
     settings.storage_path.joinpath("uploads").mkdir(parents=True, exist_ok=True)
     settings.storage_path.joinpath("outputs").mkdir(parents=True, exist_ok=True)
+    settings.storage_path.joinpath("scans").mkdir(parents=True, exist_ok=True)
+    settings.storage_path.joinpath("cache").mkdir(parents=True, exist_ok=True)
     init_db()
     db = SessionLocal()
     try:

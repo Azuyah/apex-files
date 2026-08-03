@@ -24,6 +24,7 @@ def ensure_temp_admin_account(db: Session) -> None:
             password_hash=hash_password(password),
             display_name="Temporary Admin",
             company_name="Apex Files",
+            selected_package="pro",
             role="admin",
         )
         db.add(user)
@@ -32,19 +33,20 @@ def ensure_temp_admin_account(db: Session) -> None:
         user.password_hash = hash_password(password)
         user.display_name = user.display_name or "Temporary Admin"
         user.company_name = user.company_name or "Apex Files"
+        user.selected_package = "pro"
         user.role = user.role or "admin"
 
     subscription = db.scalar(select(Subscription).where(Subscription.user_id == user.id))
     if subscription is None:
         subscription = Subscription(
             user_id=user.id,
-            plan_name="Temporary Admin",
+            plan_name="Apex Pro",
             monthly_file_limit=9999,
             period_ends_at=utcnow() + timedelta(days=365),
         )
         db.add(subscription)
     else:
-        subscription.plan_name = "Temporary Admin"
+        subscription.plan_name = "Apex Pro"
         subscription.monthly_file_limit = max(subscription.monthly_file_limit, 9999)
         subscription.status = "active"
         now = utcnow()

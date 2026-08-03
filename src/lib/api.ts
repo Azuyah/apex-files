@@ -3,6 +3,10 @@ export type User = {
   email: string;
   display_name: string;
   company_name: string;
+  vat_number: string;
+  phone_number: string;
+  country: string;
+  selected_package: string;
   role: string;
   created_at: string;
 };
@@ -76,6 +80,35 @@ export type BuildMatch = {
   };
   base_tunes: string[];
   addon_keys: string[];
+  availability?: Record<string, unknown>;
+  stage_gains?: Record<
+    string,
+    {
+      stage_no?: number;
+      base_hp?: number | null;
+      base_nm?: number | null;
+      power_hp?: number | null;
+      torque_nm?: number | null;
+      gain_hp?: number | null;
+      gain_nm?: number | null;
+      display?: string;
+      gain_display?: string;
+    }
+  >;
+};
+
+export type BuildScan = {
+  id: string;
+  source_filename: string;
+  source_sha256: string;
+  source_size_bytes: number;
+  status: 'queued' | 'scanning' | 'ready' | 'failed' | string;
+  progress: number;
+  current_stage: string;
+  result_payload: BuildMatch | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type IntegrationStatus = {
@@ -164,6 +197,10 @@ export async function register(input: {
   password: string;
   display_name: string;
   company_name: string;
+  vat_number: string;
+  phone_number: string;
+  country: string;
+  package_key: 'free' | 'lite' | 'pro';
 }) {
   const data = await apiFetch<AuthResponse>('/auth/register', {
     method: 'POST',
@@ -193,11 +230,34 @@ export const createProject = (input: {
     body: JSON.stringify(input),
   });
 
+export const updateProject = (
+  projectId: string,
+  input: Partial<{
+    name: string;
+    vehicle_label: string;
+    ecu_label: string;
+    source_filename: string;
+    requested_options: Record<string, unknown>;
+  }>,
+) =>
+  apiFetch<Project>(`/projects/${encodeURIComponent(projectId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+
 export async function findBuildMatch(file: File) {
   const form = new FormData();
   form.append('file', file);
   return apiFetch<BuildMatch>('/builds/match', { method: 'POST', body: form });
 }
+
+export async function startBuildScan(file: File) {
+  const form = new FormData();
+  form.append('file', file);
+  return apiFetch<BuildScan>('/builds/scan', { method: 'POST', body: form });
+}
+
+export const getBuildScan = (scanId: string) => apiFetch<BuildScan>(`/builds/scans/${encodeURIComponent(scanId)}`);
 
 export async function createBuild(input: {
   file: File;
@@ -219,6 +279,30 @@ export async function createBuild(input: {
   form.append('project_name', input.project_name);
   if (input.project_id) form.append('project_id', input.project_id);
   return apiFetch<BuildJob>('/builds', { method: 'POST', body: form });
+}
+
+export async function retryBuild(input: {
+  job_id: string;
+  base_tune: string;
+  addon_keys: string[];
+}) {
+  const form = new FormData();
+  form.append('base_tune', input.base_tune);
+  form.append('addon_keys', JSON.stringify(input.addon_keys));
+  return apiFetch<BuildJob>(`/builds/${encodeURIComponent(input.job_id)}/retry`, { method: 'POST', body: form });
+}
+
+export async function requestBuildFile(input: {
+  job_id: string;
+  base_tune: string;
+  addon_keys: string[];
+  comments?: string;
+}) {
+  const form = new FormData();
+  form.append('base_tune', input.base_tune);
+  form.append('addon_keys', JSON.stringify(input.addon_keys));
+  form.append('comments', input.comments || '');
+  return apiFetch<Project>(`/builds/${encodeURIComponent(input.job_id)}/request-file`, { method: 'POST', body: form });
 }
 
 export async function downloadBuild(jobId: string, filename?: string | null) {

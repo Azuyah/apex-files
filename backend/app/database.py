@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .settings import get_settings
@@ -31,3 +31,20 @@ def init_db() -> None:
     from . import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    ensure_user_profile_columns()
+
+
+def ensure_user_profile_columns() -> None:
+    existing = {column["name"] for column in inspect(engine).get_columns("users")}
+    columns = {
+        "vat_number": "VARCHAR(80) DEFAULT ''",
+        "phone_number": "VARCHAR(80) DEFAULT ''",
+        "country": "VARCHAR(120) DEFAULT ''",
+        "selected_package": "VARCHAR(40) DEFAULT 'free'",
+    }
+    missing = [(name, ddl) for name, ddl in columns.items() if name not in existing]
+    if not missing:
+        return
+    with engine.begin() as connection:
+        for name, ddl in missing:
+            connection.execute(text(f"ALTER TABLE users ADD COLUMN {name} {ddl}"))

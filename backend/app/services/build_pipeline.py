@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import logging
 import re
@@ -10,7 +11,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
-from ..models import BuildJob, Subscription
+from ..models import BuildJob, BuildScan, FileDeliveryCache, Subscription
 from ..settings import get_settings
 from .revtech_client import RevtechClient, RevtechClientError
 
@@ -20,6 +21,11 @@ logger = logging.getLogger(__name__)
 def normalize_filename_part(value: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip()).strip("-")
     return cleaned[:90] or "apex-file"
+
+
+def filename_slug(value: Any, *, fallback: str = "") -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9]+", "-", str(value or "").strip().lower()).strip("-")
+    return cleaned[:42] or fallback
 
 
 def sha256_file(path: Path) -> str:
@@ -44,6 +50,14 @@ BASE_LABELS = {
     "CUSTOM": ("stage 3", "custom"),
     "ECO": ("eco",),
     "TCU": ("tcu", "gearbox", "dsg"),
+}
+
+BASE_NAMES = {
+    "STAGE1": "Stage 1",
+    "STAGE2": "Stage 2",
+    "CUSTOM": "Custom",
+    "ECO": "ECO",
+    "TCU": "TCU",
 }
 
 ADDON_LABELS = {
@@ -83,10 +97,104 @@ ADDON_NAMES = {
 }
 
 PATCH_ADAPTATION_ADDONS = {"EGR_OFF", "DPF_OFF", "DECAT", "SWIRL_FLAPS_OFF", "ADBLUE_OFF", "VMAX"}
+PATCH_SCAN_BASE_KEYS = ["STAGE1", "STAGE2", "CUSTOM", "ECO", "TCU"]
+PATCH_SCAN_ADDON_KEYS = ["EGR_OFF", "DPF_OFF", "DECAT", "SWIRL_FLAPS_OFF", "ADBLUE_OFF", "VMAX"]
 
 
 def display_addons(addon_keys: list[str]) -> str:
     return ", ".join(ADDON_NAMES.get(key, key) for key in addon_keys)
+
+
+def option_filename_part(base_key: str | None, addon_keys: list[str] | None) -> str:
+    parts: list[str] = []
+    base = str(base_key or "").strip().upper()
+    if base:
+        parts.append(filename_slug(BASE_NAMES.get(base, base).replace(" ", ""), fallback=base.lower()))
+    for key in list(addon_keys or []):
+        clean_key = str(key or "").strip().upper()
+        label = ADDON_NAMES.get(clean_key, clean_key)
+        slug = filename_slug(label, fallback=clean_key.lower())
+        if slug and slug not in parts:
+            parts.append(slug)
+    return ("_".join(parts) or "options")[:82].strip("_-") or "options"
+
+
+def customer_result_filename(
+    *,
+    source_filename: str,
+    base_key: str | None,
+    addon_keys: list[str] | None,
+    offer: dict[str, Any] | None = None,
+    fallback_filename: str | None = None,
+) -> str:
+    metadata = (offer or {}).get("metadata") if isinstance((offer or {}).get("metadata"), dict) else {}
+    brand = filename_slug(metadata.get("brand"), fallback="")
+    model = filename_slug(metadata.get("model") or metadata.get("vehicle"), fallback="")
+    ecu = filename_slug(metadata.get("ecu_type") or metadata.get("ecu_build") or (offer or {}).get("ecu_label"), fallback="")
+
+    if not brand or not model or not ecu:
+        source_stem = Path(source_filename or fallback_filename or "apex-file").stem
+        source_parts = [part for part in re.split(r"[_\-\s]+", source_stem.lower()) if part]
+        if not brand and source_parts:
+            brand = filename_slug(source_parts[0], fallback="")
+        if not model and len(source_parts) > 1:
+            model = filename_slug(source_parts[1], fallback="")
+        if not ecu:
+            ecu_candidate = next((part for part in source_parts if "edc" in part or "med" in part or "mg1" in part or "md1" in part), "")
+            ecu = filename_slug(ecu_candidate, fallback="")
+
+    extension_source = fallback_filename or source_filename or "apex-file.bin"
+    extension = Path(extension_source).suffix.lower()
+    if extension not in {".bin", ".ori", ".dat", ".ecu", ".hex"}:
+        extension = ".bin"
+
+    parts = [
+        brand or "vehicle",
+        model or "model",
+        ecu or "ecu",
+        option_filename_part(base_key, addon_keys),
+        "apexfiles",
+    ]
+    stem = "_".join(parts)
+    max_stem_length = 180 - len(extension)
+    if len(stem) > max_stem_length:
+        stem = stem[:max_stem_length].rstrip("_-")
+    return f"{stem}{extension}"
+
+
+def display_solution_key(base_key: str | None = None, addon_keys: list[str] | None = None) -> str:
+    if base_key:
+        return BASE_NAMES.get(base_key, base_key)
+    return display_addons(list(addon_keys or [])) or "selection"
+
+
+def option_signature(base_key: str | None, addon_keys: list[str] | None) -> str:
+    base = str(base_key or "").strip().upper()
+    addons = sorted({str(key or "").strip().upper() for key in list(addon_keys or []) if str(key or "").strip()})
+    return "|".join([f"base={base}", f"addons={','.join(addons)}"])
+
+
+def first_successful_patch_output(payload: dict[str, Any]) -> tuple[bytes, str] | None:
+    candidates = payload.get("candidates") if isinstance(payload, dict) else None
+    if not isinstance(candidates, list):
+        return None
+    for candidate in candidates:
+        if not isinstance(candidate, dict) or str(candidate.get("status") or "").lower() != "success":
+            continue
+        output = candidate.get("output") if isinstance(candidate.get("output"), dict) else {}
+        content_b64 = str(output.get("content_b64") or "")
+        if not content_b64:
+            continue
+        filename = str(output.get("filename") or "apex-patched.bin")
+        return base64.b64decode(content_b64), filename
+    return None
+
+
+def patch_success_count(payload: dict[str, Any]) -> int:
+    candidates = payload.get("candidates") if isinstance(payload, dict) else None
+    if not isinstance(candidates, list):
+        return 0
+    return len([candidate for candidate in candidates if isinstance(candidate, dict) and str(candidate.get("status") or "").lower() == "success"])
 
 
 def customer_safe_error(exc: Exception) -> str:
@@ -126,6 +234,35 @@ def is_fileserver_library_exact(match: dict[str, Any] | None, project: dict[str,
     match_meta = match.get("match_meta") if isinstance(match, dict) and isinstance(match.get("match_meta"), dict) else {}
     match_source = str(match_meta.get("match_source") or "").strip().lower()
     return source == "fileserver_library_exact" or match_source == "fileserver_library_exact" or bool(library_meta.get("direct_delivery"))
+
+
+def requires_patch_adaptation(match: dict[str, Any] | None, project: dict[str, Any] | None) -> bool:
+    project_meta = (
+        project.get("extra_meta")
+        if isinstance(project, dict) and isinstance(project.get("extra_meta"), dict)
+        else {}
+    )
+    match_meta = (
+        match.get("match_meta")
+        if isinstance(match, dict) and isinstance(match.get("match_meta"), dict)
+        else {}
+    )
+    adaptation_markers = (
+        project_meta.get("bench_adaptation"),
+        match_meta.get("bench_adaptation"),
+        match.get("bench_adaptation") if isinstance(match, dict) else None,
+    )
+    for marker in adaptation_markers:
+        if not isinstance(marker, dict):
+            continue
+        if bool(marker.get("requires_adaptation")):
+            return True
+        if bool(marker.get("eligible")) and bool(marker.get("requires_adaptation", True)):
+            return True
+
+    tier = str(match.get("tier") or "").strip().lower() if isinstance(match, dict) else ""
+    method = str(match.get("method") or "").strip().upper() if isinstance(match, dict) else ""
+    return tier == "bench_adaptation" or "BENCH_ADAPTATION" in method
 
 
 def fileserver_package_entries(match: dict[str, Any] | None, project: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -409,6 +546,61 @@ def matched_option_keys(match: dict[str, Any], project: dict[str, Any]) -> tuple
     return base_keys, addon_keys
 
 
+def append_unique(target: list[str], values: list[str]) -> None:
+    for value in values:
+        if value not in target:
+            target.append(value)
+
+
+def ordered_matches_for_delivery(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    preferred = preferred_match(matches)
+    ordered: list[dict[str, Any]] = []
+    if preferred:
+        ordered.append(preferred)
+    for match in matches:
+        if match is not preferred:
+            ordered.append(match)
+    return ordered
+
+
+def matched_option_keys_from_matches(matches: list[dict[str, Any]]) -> tuple[list[str], list[str]]:
+    base_keys: list[str] = []
+    addon_keys: list[str] = []
+    for candidate in ordered_matches_for_delivery(matches):
+        project = candidate.get("project") if isinstance(candidate, dict) else None
+        if not isinstance(project, dict):
+            continue
+        candidate_base_keys, candidate_addon_keys = matched_option_keys(candidate, project)
+        append_unique(base_keys, candidate_base_keys)
+        append_unique(addon_keys, candidate_addon_keys)
+    return base_keys, addon_keys
+
+
+def match_with_project(matches: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    for candidate in ordered_matches_for_delivery(matches):
+        project = candidate.get("project") if isinstance(candidate, dict) else None
+        if isinstance(project, dict):
+            return candidate, project
+    return None, None
+
+
+def select_delivery_candidate(
+    matches: list[dict[str, Any]],
+    base_key: str,
+    addon_keys: list[str],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None, list[dict[str, Any]]]:
+    for candidate in ordered_matches_for_delivery(matches):
+        project = candidate.get("project") if isinstance(candidate, dict) else None
+        if not isinstance(project, dict):
+            continue
+        if requires_patch_adaptation(candidate, project):
+            continue
+        direct_version, merge_versions = select_versions(project, base_key, addon_keys)
+        if direct_version or merge_versions:
+            return candidate, project, direct_version, merge_versions
+    return None, None, None, []
+
+
 def build_match_offer(
     match_payload: dict[str, Any],
     *,
@@ -417,8 +609,7 @@ def build_match_offer(
     source_size_bytes: int,
 ) -> dict[str, Any]:
     matches = [match for match in list(match_payload.get("matches") or []) if isinstance(match, dict)]
-    match = preferred_match(matches)
-    project = match.get("project") if isinstance(match, dict) else None
+    match, project = match_with_project(matches)
     if not isinstance(project, dict):
         metadata = build_match_metadata(match_payload, matches)
         return {
@@ -438,8 +629,8 @@ def build_match_offer(
     project_meta = project.get("extra_meta") if isinstance(project.get("extra_meta"), dict) else {}
     match_meta = match.get("match_meta") if isinstance(match.get("match_meta"), dict) else {}
     sources = [project, project_meta, match, match_meta]
-    base_keys, addon_keys = matched_option_keys(match, project)
-    matched = bool(base_keys)
+    base_keys, addon_keys = matched_option_keys_from_matches(matches)
+    matched = bool(base_keys or addon_keys)
     metadata = build_match_metadata(match_payload, matches)
     vehicle_label = metadata.get("vehicle") or first_text_value(
         sources,
@@ -503,16 +694,27 @@ def select_versions(project: dict[str, Any], base_key: str, addon_keys: list[str
         return base_version, []
     if base_version and len(addon_versions) == requested_addon_count:
         return None, [base_version, *addon_versions]
+    if not base_tokens and requested_addon_count == 1 and len(addon_versions) == 1:
+        return addon_versions[0], []
+    if not base_tokens and requested_addon_count > 1 and len(addon_versions) == requested_addon_count:
+        return None, addon_versions
     return None, []
 
 
-def project_live_identifiers(project: dict[str, Any]) -> tuple[str, str | None]:
+def project_live_identifiers(project: dict[str, Any]) -> tuple[str, str | None, str | None]:
     meta = project.get("extra_meta") if isinstance(project.get("extra_meta"), dict) else {}
     filename = str(meta.get("winols_project_filename") or project.get("original_filename") or "").strip()
     path = str(meta.get("winols_project_path") or "").strip() or None
+    client_name = str(
+        meta.get("indexed_client_name")
+        or meta.get("client_name")
+        or project.get("indexed_client_name")
+        or project.get("client_name")
+        or ""
+    ).strip() or None
     if not filename:
         raise RevtechClientError("Matched Revtech project did not include a WinOLS project filename.")
-    return filename, path
+    return filename, path, client_name
 
 
 def output_filename_from_headers(headers: dict[str, str], fallback: str) -> str:
@@ -533,9 +735,256 @@ def update_job(db: Session, job_id: str, **values: Any) -> BuildJob:
     return job
 
 
+def update_scan(db: Session, scan_id: str, **values: Any) -> BuildScan:
+    scan = db.get(BuildScan, scan_id)
+    if scan is None:
+        raise RuntimeError(f"Build scan {scan_id} no longer exists")
+    for key, value in values.items():
+        setattr(scan, key, value)
+    db.add(scan)
+    db.commit()
+    db.refresh(scan)
+    return scan
+
+
+def get_cached_delivery(db: Session, *, source_sha256: str, base_key: str | None, addon_keys: list[str]) -> FileDeliveryCache | None:
+    signature = option_signature(base_key, addon_keys)
+    row = (
+        db.query(FileDeliveryCache)
+        .filter(
+            FileDeliveryCache.source_sha256 == source_sha256,
+            FileDeliveryCache.option_signature == signature,
+        )
+        .order_by(FileDeliveryCache.updated_at.desc())
+        .first()
+    )
+    if row and Path(row.result_path).exists():
+        return row
+    return None
+
+
+def store_delivery_cache(
+    db: Session,
+    *,
+    settings: Any,
+    source_sha256: str,
+    base_key: str | None,
+    addon_keys: list[str],
+    result_filename: str,
+    content: bytes,
+    strategy: str,
+    revtech_payload: dict[str, Any] | None = None,
+) -> FileDeliveryCache:
+    signature = option_signature(base_key, addon_keys)
+    cache_root = settings.storage_path / "cache" / source_sha256[:16] / normalize_filename_part(signature)
+    cache_root.mkdir(parents=True, exist_ok=True)
+    safe_name = normalize_filename_part(result_filename) or "apex-cached.bin"
+    result_path = cache_root / safe_name
+    result_path.write_bytes(content)
+    result_sha = sha256_bytes(content)
+    row = get_cached_delivery(db, source_sha256=source_sha256, base_key=base_key, addon_keys=addon_keys)
+    if row is None:
+        row = FileDeliveryCache(
+            source_sha256=source_sha256,
+            option_signature=signature,
+            base_tune=str(base_key or "").strip().upper(),
+            addon_keys=list(addon_keys or []),
+            strategy=strategy,
+            result_filename=safe_name,
+            result_path=str(result_path),
+            result_sha256=result_sha,
+            result_size_bytes=len(content),
+            revtech_payload=revtech_payload or {},
+        )
+    else:
+        row.strategy = strategy
+        row.result_filename = safe_name
+        row.result_path = str(result_path)
+        row.result_sha256 = result_sha
+        row.result_size_bytes = len(content)
+        row.revtech_payload = revtech_payload or {}
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+async def process_build_scan(scan_id: str) -> None:
+    settings = get_settings()
+    client = RevtechClient(settings)
+    db = SessionLocal()
+    try:
+        scan = db.get(BuildScan, scan_id)
+        if scan is None:
+            return
+
+        file_path = Path(scan.source_path)
+        update_scan(db, scan_id, status="scanning", progress=8, current_stage="Fingerprinting file")
+        update_scan(db, scan_id, progress=12, current_stage="Scanning database and version merge candidates")
+        match_payload = await client.match_bin(file_path, max_matches=50, exact_only=False)
+        offer = build_match_offer(
+            match_payload,
+            source_filename=scan.source_filename,
+            source_sha256=scan.source_sha256,
+            source_size_bytes=scan.source_size_bytes,
+        )
+        try:
+            offer["stage_gains"] = await client.vehicle_stage_gains(offer.get("metadata") or {})
+        except Exception:
+            logger.exception("Could not resolve Revtech vehicle gains for Apex scan")
+            offer["stage_gains"] = {}
+
+        base_keys = set(read for read in list(offer.get("base_tunes") or []) if isinstance(read, str))
+        addon_keys = set(read for read in list(offer.get("addon_keys") or []) if isinstance(read, str))
+        availability: dict[str, Any] = {
+            "base_tunes": {
+                key: {
+                    "source": "request",
+                    "strategy": "request_file",
+                    "status": "requestable",
+                    "label": BASE_NAMES.get(key, key),
+                }
+                for key in PATCH_SCAN_BASE_KEYS
+            },
+            "addon_keys": {
+                key: {
+                    "source": "request",
+                    "strategy": "request_file",
+                    "status": "requestable",
+                    "label": ADDON_NAMES.get(key, key),
+                }
+                for key in ADDON_LABELS
+            },
+            "patch_candidates": [],
+        }
+        for key in sorted(base_keys):
+            availability["base_tunes"][key] = {
+                "source": "database",
+                "strategy": "direct_or_merge",
+                "status": "found",
+                "label": BASE_NAMES.get(key, key),
+            }
+        for key in sorted(addon_keys):
+            availability["addon_keys"][key] = {
+                "source": "database",
+                "strategy": "direct_or_merge",
+                "status": "found",
+                "label": ADDON_NAMES.get(key, key),
+            }
+
+        scan_items: list[tuple[str, str, list[str]]] = [
+            *[("base", key, []) for key in PATCH_SCAN_BASE_KEYS],
+            *[("addon", "", [key]) for key in PATCH_SCAN_ADDON_KEYS],
+        ]
+        total_items = max(1, len(scan_items))
+        for index, (kind, base_key, addons) in enumerate(scan_items, start=1):
+            label = display_solution_key(base_key, addons)
+            progress = 18 + int((index - 1) / total_items * 74)
+            update_scan(db, scan_id, progress=progress, current_stage=f"Checking {label}")
+            try:
+                payload = await client.patch_adaptation_test(
+                    file_path,
+                    base_key=base_key,
+                    addon_keys=addons,
+                    max_matches=50,
+                    max_candidates=5,
+                    include_output=True,
+                )
+            except Exception as exc:
+                availability["patch_candidates"].append(
+                    {
+                        "kind": kind,
+                        "base_key": base_key,
+                        "addon_keys": addons,
+                        "label": label,
+                        "status": "failed",
+                        "message": customer_safe_error(exc),
+                    }
+                )
+                continue
+
+            success_count = patch_success_count(payload)
+            output = first_successful_patch_output(payload)
+            candidate_meta = {
+                "kind": kind,
+                "base_key": base_key,
+                "addon_keys": addons,
+                "label": label,
+                "status": "found" if success_count else "not_found",
+                "success_count": success_count,
+                "message": payload.get("message"),
+                "duration_ms": payload.get("duration_ms"),
+            }
+            if success_count:
+                if kind == "base" and base_key:
+                    base_keys.add(base_key)
+                    availability["base_tunes"][base_key] = {
+                        "source": "patch_adaptation",
+                        "strategy": "non_exact_patch",
+                        "status": "found",
+                        "label": BASE_NAMES.get(base_key, base_key),
+                        "success_count": success_count,
+                    }
+                elif kind == "addon" and addons:
+                    addon_keys.update(addons)
+                    for addon in addons:
+                        availability["addon_keys"][addon] = {
+                            "source": "patch_adaptation",
+                            "strategy": "non_exact_patch",
+                            "status": "found",
+                            "label": ADDON_NAMES.get(addon, addon),
+                            "success_count": success_count,
+                        }
+                if output:
+                    content, filename = output
+                    cache = store_delivery_cache(
+                        db,
+                        settings=settings,
+                        source_sha256=scan.source_sha256,
+                        base_key=base_key,
+                        addon_keys=addons,
+                        result_filename=filename,
+                        content=content,
+                        strategy="patch_adaptation_scan",
+                        revtech_payload={"patch_adaptation": payload, "apex_offer": offer, "scan_id": scan_id},
+                    )
+                    candidate_meta["cache_id"] = cache.id
+                    candidate_meta["result_sha256"] = cache.result_sha256
+            availability["patch_candidates"].append(candidate_meta)
+
+        offer["base_tunes"] = [key for key in BASE_LABELS if key in base_keys]
+        offer["addon_keys"] = [key for key in ADDON_LABELS if key in addon_keys]
+        offer["availability"] = availability
+        offer["matched"] = bool(offer["base_tunes"] or offer["addon_keys"])
+        offer["message"] = "Scan found delivery candidates." if offer["matched"] else "No delivery candidates were found."
+
+        update_scan(
+            db,
+            scan_id,
+            status="ready",
+            progress=100,
+            current_stage="Scan complete",
+            result_payload=offer,
+            error_message=None,
+        )
+    except Exception as exc:
+        logger.exception("Apex build scan %s failed", scan_id)
+        update_scan(
+            db,
+            scan_id,
+            status="failed",
+            progress=100,
+            current_stage="Scan failed",
+            error_message=customer_safe_error(exc),
+        )
+    finally:
+        db.close()
+
+
 async def process_build_job(job_id: str) -> None:
     settings = get_settings()
     client = RevtechClient(settings)
+    failure_payload: dict[str, Any] = {}
 
     db = SessionLocal()
     try:
@@ -545,13 +994,54 @@ async def process_build_job(job_id: str) -> None:
 
         file_path = Path(job.source_path)
         addon_keys = list((job.requested_options or {}).get("addon_keys") or [])
+        cached = get_cached_delivery(
+            db,
+            source_sha256=job.source_sha256,
+            base_key=job.base_tune,
+            addon_keys=addon_keys,
+        )
+        if cached:
+            cached_payload = cached.revtech_payload or {}
+            cached_offer = cached_payload.get("apex_offer") if isinstance(cached_payload.get("apex_offer"), dict) else {}
+            display_filename = customer_result_filename(
+                source_filename=job.source_filename,
+                base_key=job.base_tune,
+                addon_keys=addon_keys,
+                offer=cached_offer,
+                fallback_filename=cached.result_filename,
+            )
+            update_job(
+                db,
+                job_id,
+                status="ready",
+                progress=100,
+                current_stage="Ready",
+                strategy=f"cached_{cached.strategy}",
+                result_filename=display_filename,
+                result_path=cached.result_path,
+                result_sha256=cached.result_sha256,
+                revtech_payload={"cache": cached.revtech_payload or {}, "option_signature": cached.option_signature},
+            )
+            subscription = db.query(Subscription).filter(Subscription.user_id == job.user_id).one_or_none()
+            if subscription:
+                subscription.files_used_this_period += 1
+                db.add(subscription)
+                db.commit()
+            return
 
         update_job(db, job_id, status="scanning", progress=12, current_stage="Fingerprinting file")
         await asyncio.sleep(0.35 if not settings.revtech_enabled else 0)
 
-        update_job(db, job_id, progress=28, current_stage="Checking exact matches")
-        match_payload = await client.match_bin(file_path, max_matches=50)
+        update_job(db, job_id, progress=28, current_stage="Scanning file matches")
+        match_payload = await client.match_bin(file_path, max_matches=50, exact_only=False)
         matches = [match for match in list(match_payload.get("matches") or []) if isinstance(match, dict)]
+        offer = build_match_offer(
+            match_payload,
+            source_filename=job.source_filename,
+            source_sha256=job.source_sha256,
+            source_size_bytes=job.source_size_bytes,
+        )
+        failure_payload = {"apex_offer": offer}
         exact_match = exact_or_strong_match(matches)
 
         strategy = "exact_match" if exact_match else "patch_adaptation"
@@ -565,7 +1055,7 @@ async def process_build_job(job_id: str) -> None:
             progress=52,
             current_stage="Preparing requested calibration",
             strategy=strategy,
-            revtech_payload=match_payload,
+            revtech_payload={"scan": match_payload, "apex_offer": offer},
         )
         await asyncio.sleep(0.45 if not settings.revtech_enabled else 0)
 
@@ -573,15 +1063,12 @@ async def process_build_job(job_id: str) -> None:
         output_bytes: bytes
         result_filename: str
 
-        top_match = exact_match or (matches[0] if matches else None)
-        top_project = top_match.get("project") if isinstance(top_match, dict) else None
-        if top_project is not None and not isinstance(top_project, dict):
-            raise RevtechClientError("Revtech returned an invalid match project.")
-
-        direct_version: dict[str, Any] | None = None
-        merge_versions: list[dict[str, Any]] = []
-        if isinstance(top_project, dict):
-            direct_version, merge_versions = select_versions(top_project, job.base_tune, addon_keys)
+        top_match, top_project, direct_version, merge_versions = select_delivery_candidate(matches, job.base_tune, addon_keys)
+        if top_match is None:
+            top_match = exact_match or (matches[0] if matches else None)
+        if top_project is None and isinstance(top_match, dict):
+            candidate_project = top_match.get("project")
+            top_project = candidate_project if isinstance(candidate_project, dict) else None
 
         if direct_version:
             if not isinstance(top_project, dict):
@@ -597,12 +1084,13 @@ async def process_build_job(job_id: str) -> None:
                 result_filename = output_filename_from_headers(headers, fallback_name)
                 strategy = "fileserver_direct"
             else:
-                project_filename, project_path = project_live_identifiers(top_project)
+                project_filename, project_path, client_name = project_live_identifiers(top_project)
                 update_job(db, job_id, progress=68, current_stage="Exporting matched version", strategy="exact_match")
                 output_bytes, headers = await client.export_version(
                     file_path,
                     project_filename=project_filename,
                     project_path=project_path,
+                    client_name=client_name,
                     version_name=str(direct_version.get("name") or ""),
                     version_index=direct_version.get("index") if isinstance(direct_version.get("index"), int) else None,
                 )
@@ -613,13 +1101,14 @@ async def process_build_job(job_id: str) -> None:
                 raise RevtechClientError("Revtech returned an invalid version-merge project.")
             if is_fileserver_library_exact(top_match, top_project):
                 raise RevtechClientError("This request needs a prepared database file. No compatible file was found for this request.")
-            project_filename, project_path = project_live_identifiers(top_project)
+            project_filename, project_path, client_name = project_live_identifiers(top_project)
             update_job(db, job_id, progress=68, current_stage="Merging requested versions", strategy="version_merge")
             merge_label = " + ".join(str(version.get("name") or "") for version in merge_versions if version.get("name"))
             output_bytes, headers = await client.merge_versions(
                 file_path,
                 project_filename=project_filename,
                 project_path=project_path,
+                client_name=client_name,
                 versions=[
                     {
                         "version_name": version.get("name"),
@@ -650,17 +1139,33 @@ async def process_build_job(job_id: str) -> None:
 
         output_dir = settings.storage_path / "outputs" / job_id
         output_dir.mkdir(parents=True, exist_ok=True)
-        option_slug = normalize_filename_part("-".join([job.base_tune, *addon_keys]).lower())
-        source_stem = normalize_filename_part(Path(job.source_filename).stem)
-        result_filename = normalize_filename_part(result_filename) or f"{source_stem}__{option_slug or 'apex'}__apex.bin"
+        result_filename = customer_result_filename(
+            source_filename=job.source_filename,
+            base_key=job.base_tune,
+            addon_keys=addon_keys,
+            offer=offer,
+            fallback_filename=result_filename,
+        )
         result_path = output_dir / result_filename
 
         result_path.write_bytes(output_bytes)
         result_sha = sha256_bytes(output_bytes)
 
-        final_payload = dict(match_payload)
+        final_payload = {"scan": match_payload, "apex_offer": offer}
         if patch_payload:
             final_payload["patch_adaptation"] = patch_payload
+
+        store_delivery_cache(
+            db,
+            settings=settings,
+            source_sha256=job.source_sha256,
+            base_key=job.base_tune,
+            addon_keys=addon_keys,
+            result_filename=result_filename,
+            content=output_bytes,
+            strategy=strategy,
+            revtech_payload=final_payload,
+        )
 
         update_job(
             db,
@@ -688,7 +1193,7 @@ async def process_build_job(job_id: str) -> None:
             progress=100,
             current_stage="Failed",
             error_message=customer_safe_error(exc),
-            revtech_payload={"error_type": exc.__class__.__name__},
+            revtech_payload={**failure_payload, "error_type": exc.__class__.__name__},
         )
     finally:
         db.close()

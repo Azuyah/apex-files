@@ -15,7 +15,7 @@ public partial class MainWindow : Window
     private const string ProductName = "Apex Files";
     private const string ProductExe = "Apex Files.exe";
     private const string InstallerName = "Apex Files Installer";
-    private const string SupportUrl = "https://files.revtechfiles.com/support";
+    private const string SupportUrl = "mailto:support@apexfiles.com?subject=Apex%20Files%20Installer%20Support";
 
     private enum Step
     {

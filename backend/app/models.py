@@ -31,6 +31,10 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     display_name: Mapped[str] = mapped_column(String(160), default="")
     company_name: Mapped[str] = mapped_column(String(180), default="")
+    vat_number: Mapped[str] = mapped_column(String(80), default="")
+    phone_number: Mapped[str] = mapped_column(String(80), default="")
+    country: Mapped[str] = mapped_column(String(120), default="")
+    selected_package: Mapped[str] = mapped_column(String(40), default="free")
     role: Mapped[str] = mapped_column(String(40), default="tuner")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -46,8 +50,8 @@ class Subscription(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True)
-    plan_name: Mapped[str] = mapped_column(String(120), default="Apex Launch")
-    monthly_file_limit: Mapped[int] = mapped_column(Integer, default=25)
+    plan_name: Mapped[str] = mapped_column(String(120), default="Apex Lite")
+    monthly_file_limit: Mapped[int] = mapped_column(Integer, default=20)
     files_used_this_period: Mapped[int] = mapped_column(Integer, default=0)
     period_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     period_ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
@@ -102,3 +106,39 @@ class BuildJob(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     user: Mapped[User] = relationship(back_populates="build_jobs")
+
+
+class BuildScan(Base):
+    __tablename__ = "build_scans"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    source_filename: Mapped[str] = mapped_column(String(255))
+    source_path: Mapped[str] = mapped_column(Text)
+    source_sha256: Mapped[str] = mapped_column(String(64), index=True)
+    source_size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(40), default="queued")
+    progress: Mapped[int] = mapped_column(Integer, default=0)
+    current_stage: Mapped[str] = mapped_column(String(120), default="Queued")
+    result_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class FileDeliveryCache(Base):
+    __tablename__ = "file_delivery_cache"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    source_sha256: Mapped[str] = mapped_column(String(64), index=True)
+    option_signature: Mapped[str] = mapped_column(String(255), index=True)
+    base_tune: Mapped[str] = mapped_column(String(80), default="")
+    addon_keys: Mapped[list] = mapped_column(JSON, default=list)
+    strategy: Mapped[str] = mapped_column(String(120), default="cached")
+    result_filename: Mapped[str] = mapped_column(String(255))
+    result_path: Mapped[str] = mapped_column(Text)
+    result_sha256: Mapped[str] = mapped_column(String(64), index=True)
+    result_size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    revtech_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

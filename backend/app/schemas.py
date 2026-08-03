@@ -11,6 +11,10 @@ class AuthRegisterIn(BaseModel):
     password: str = Field(min_length=8)
     display_name: str = ""
     company_name: str = ""
+    vat_number: str = ""
+    phone_number: str = ""
+    country: str = ""
+    package_key: Literal["free", "lite", "pro"] = "free"
 
 
 class AuthLoginIn(BaseModel):
@@ -23,6 +27,10 @@ class UserOut(BaseModel):
     email: str
     display_name: str
     company_name: str
+    vat_number: str
+    phone_number: str
+    country: str
+    selected_package: str
     role: str
     created_at: datetime
 
@@ -52,6 +60,14 @@ class ProjectCreateIn(BaseModel):
     source_filename: str = ""
     source_sha256: str = ""
     requested_options: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProjectUpdateIn(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=180)
+    vehicle_label: str | None = None
+    ecu_label: str | None = None
+    source_filename: str | None = None
+    requested_options: dict[str, Any] | None = None
 
 
 class ProjectOut(BaseModel):
@@ -109,6 +125,23 @@ class BuildMatchOut(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     base_tunes: list[str] = Field(default_factory=list)
     addon_keys: list[str] = Field(default_factory=list)
+    stage_gains: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
+
+class BuildScanOut(BaseModel):
+    id: str
+    source_filename: str
+    source_sha256: str
+    source_size_bytes: int
+    status: Literal["queued", "scanning", "ready", "failed"] | str
+    progress: int
+    current_stage: str
+    result_payload: dict[str, Any] | None
+    error_message: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 class BridgeStatusOut(BaseModel):

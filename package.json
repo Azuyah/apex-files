@@ -1,7 +1,7 @@
 {
   "name": "apex-files",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.35",
   "description": "Apex Files desktop app for tuner file matching and delivery, powered by Revtech.",
   "author": "Apex Files",
   "type": "module",

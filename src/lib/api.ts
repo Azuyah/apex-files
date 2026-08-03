@@ -42,7 +42,7 @@ export type BuildJob = {
   vehicle_label: string;
   ecu_label: string;
   base_tune: string;
-  requested_options: { addon_keys?: string[] };
+  requested_options: { addon_keys?: string[]; scan_id?: string; [key: string]: unknown };
   status: 'queued' | 'scanning' | 'building' | 'ready' | 'failed' | string;
   progress: number;
   current_stage: string;
@@ -266,6 +266,7 @@ export async function createBuild(input: {
   vehicle_label: string;
   ecu_label: string;
   project_id?: string;
+  scan_id?: string;
   save_project: boolean;
   project_name: string;
 }) {
@@ -278,6 +279,7 @@ export async function createBuild(input: {
   form.append('save_project', input.save_project ? 'true' : 'false');
   form.append('project_name', input.project_name);
   if (input.project_id) form.append('project_id', input.project_id);
+  if (input.scan_id) form.append('scan_id', input.scan_id);
   return apiFetch<BuildJob>('/builds', { method: 'POST', body: form });
 }
 

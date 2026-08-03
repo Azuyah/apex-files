@@ -117,23 +117,86 @@ function displayScanStage(value: string | null | undefined) {
     .replace(/\bSTAGE2\b/gi, 'Stage 2');
 }
 
-function availabilityStatus(
-  match: BuildMatch | null | undefined,
-  group: 'base_tunes' | 'addon_keys',
-  key: string,
-) {
-  const foundKeys = group === 'base_tunes' ? match?.base_tunes : match?.addon_keys;
-  if (foundKeys?.includes(key)) return 'found';
-  const availability = match?.availability as Record<string, unknown> | undefined;
-  const section = availability?.[group] as Record<string, unknown> | undefined;
-  const item = section?.[key] as Record<string, unknown> | undefined;
-  const status = String(item?.status || '').toLowerCase();
-  if (status) return status;
-  return 'requestable';
+type BuildableSelection = {
+  signature: string;
+  baseTune: string;
+  addonKeys: string[];
+  source: string;
+  strategy: string;
+};
+type SelectionStatus = 'found' | 'candidate' | 'request';
+
+function selectionSignature(baseTune: string | null | undefined, addonKeys: string[] | null | undefined) {
+  const base = String(baseTune || '').trim().toUpperCase();
+  const addons = Array.from(new Set((addonKeys || []).map((key) => String(key || '').trim().toUpperCase()).filter(Boolean))).sort();
+  return `base=${base}|addons=${addons.join(',')}`;
 }
 
-function isFoundOption(match: BuildMatch | null | undefined, group: 'base_tunes' | 'addon_keys', key: string) {
-  return availabilityStatus(match, group, key) === 'found';
+function buildableSelections(match: BuildMatch | null | undefined): BuildableSelection[] {
+  const availability = match?.availability as Record<string, unknown> | undefined;
+  const rawSelections = Array.isArray(availability?.buildable_selections) ? availability.buildable_selections : [];
+  return rawSelections.flatMap((value) => {
+    if (!value || typeof value !== 'object') return [];
+    const item = value as Record<string, unknown>;
+    const baseTune = String(item.base_tune || '').trim().toUpperCase();
+    const addonKeys = readStringArray(item.addon_keys).map((key) => key.toUpperCase()).sort();
+    const signature = String(item.signature || selectionSignature(baseTune, addonKeys)).trim();
+    if (!signature || (!baseTune && addonKeys.length === 0)) return [];
+    return [{
+      signature,
+      baseTune,
+      addonKeys,
+      source: String(item.source || ''),
+      strategy: String(item.strategy || ''),
+    }];
+  });
+}
+
+function candidateSelections(match: BuildMatch | null | undefined): BuildableSelection[] {
+  const availability = match?.availability as Record<string, unknown> | undefined;
+  const rawSelections = Array.isArray(availability?.candidate_selections) ? availability.candidate_selections : [];
+  return rawSelections.flatMap((value) => {
+    if (!value || typeof value !== 'object') return [];
+    const item = value as Record<string, unknown>;
+    const baseTune = String(item.base_tune || '').trim().toUpperCase();
+    const addonKeys = readStringArray(item.addon_keys).map((key) => key.toUpperCase()).sort();
+    const signature = String(item.signature || selectionSignature(baseTune, addonKeys)).trim();
+    if (!signature || (!baseTune && addonKeys.length === 0)) return [];
+    return [{
+      signature,
+      baseTune,
+      addonKeys,
+      source: String(item.source || ''),
+      strategy: String(item.strategy || ''),
+    }];
+  });
+}
+
+function isBuildableSelection(
+  match: BuildMatch | null | undefined,
+  baseTune: string | null | undefined,
+  addonKeys: string[] | null | undefined,
+) {
+  const signature = selectionSignature(baseTune, addonKeys);
+  const selections = buildableSelections(match);
+  if (selections.length) return selections.some((selection) => selection.signature === signature);
+
+  // Legacy scan payloads did not describe combinations. Preserve safe single-option
+  // delivery, but never infer a multi-option build from a union of FOUND keys.
+  const base = String(baseTune || '').trim().toUpperCase();
+  const addons = readStringArray(addonKeys).map((key) => key.toUpperCase());
+  if ((base ? 1 : 0) + addons.length !== 1) return false;
+  if (base) return readStringArray(match?.base_tunes).includes(base);
+  return readStringArray(match?.addon_keys).includes(addons[0]);
+}
+
+function isCandidateSelection(
+  match: BuildMatch | null | undefined,
+  baseTune: string | null | undefined,
+  addonKeys: string[] | null | undefined,
+) {
+  const signature = selectionSignature(baseTune, addonKeys);
+  return candidateSelections(match).some((selection) => selection.signature === signature);
 }
 
 type PackageKey = 'free' | 'lite' | 'pro';
@@ -1015,10 +1078,21 @@ function readStringArray(value: unknown) {
 
 function jobAvailableOptionKeys(job: BuildJob) {
   const payload = (job.revtech_payload || {}) as Record<string, unknown>;
-  const offer = (payload.apex_offer || {}) as Record<string, unknown>;
+  const offer = (payload.apex_offer || {}) as BuildMatch;
+  const selections = buildableSelections(offer);
+  if (selections.length) {
+    return {
+      baseTunes: Array.from(new Set(selections.map((selection) => selection.baseTune).filter(Boolean))),
+      addonKeys: Array.from(new Set(selections.flatMap((selection) => selection.addonKeys))),
+      selections,
+      offer,
+    };
+  }
   return {
     baseTunes: readStringArray(offer.base_tunes),
     addonKeys: readStringArray(offer.addon_keys),
+    selections,
+    offer,
   };
 }
 
@@ -1866,6 +1940,10 @@ function BuildDeliveryModal({
   const requestedAddonKeys = readStringArray(job.requested_options?.addon_keys);
   const addonLabels = requestedAddonKeys.map((key) => ADDON_OPTION_LABELS[key] || key).filter(Boolean);
   const available = jobAvailableOptionKeys(job);
+  const requestedSignature = selectionSignature(job.base_tune, requestedAddonKeys);
+  const preferredRetrySelection = available.selections.find((selection) => selection.signature === requestedSignature)
+    || available.selections.find((selection) => selection.baseTune === job.base_tune)
+    || available.selections[0];
   const [projectName, setProjectName] = useState(job.vehicle_label || job.result_filename || job.source_filename);
   const [vehicleLabel, setVehicleLabel] = useState(job.vehicle_label);
   const [ecuLabel, setEcuLabel] = useState(job.ecu_label);
@@ -1876,10 +1954,12 @@ function BuildDeliveryModal({
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [retryBaseTune, setRetryBaseTune] = useState(() => (
-    available.baseTunes.includes(job.base_tune) ? job.base_tune : available.baseTunes[0] || ''
+    preferredRetrySelection?.baseTune
+    ?? (available.baseTunes.includes(job.base_tune) ? job.base_tune : available.baseTunes[0] || '')
   ));
   const [retryAddonKeys, setRetryAddonKeys] = useState<string[]>(() => (
-    requestedAddonKeys.filter((key) => available.addonKeys.includes(key))
+    preferredRetrySelection?.addonKeys
+    ?? requestedAddonKeys.filter((key) => available.addonKeys.includes(key))
   ));
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState('');
@@ -1892,7 +1972,8 @@ function BuildDeliveryModal({
   const selectedRetryAddonKeys = retryAddonKeys.filter((key) => available.addonKeys.includes(key));
   const hasAvailableAlternatives = available.baseTunes.length > 0 || available.addonKeys.length > 0;
   const hasAvailableSelection = Boolean(selectedRetryBaseTune) || selectedRetryAddonKeys.length > 0;
-  const canRetryAvailable = failed && hasAvailableAlternatives && hasAvailableSelection;
+  const retrySelectionBuildable = isBuildableSelection(available.offer, selectedRetryBaseTune, selectedRetryAddonKeys);
+  const canRetryAvailable = failed && hasAvailableAlternatives && hasAvailableSelection && retrySelectionBuildable;
   const requestedOptionText = addonLabels.length ? addonLabels.join(', ') : 'No additional options';
   const preparing = !ready && !failed;
   const preparingProgress = Math.max(0, Math.min(100, Math.round(job.progress || 0)));
@@ -2070,6 +2151,11 @@ function BuildDeliveryModal({
                     <div className="delivery-empty-option">No add-ons are available for instant build.</div>
                   )}
                 </div>
+                {hasAvailableSelection && !retrySelectionBuildable ? (
+                  <div className="delivery-empty-option strong-empty">
+                    This exact combination is not prepared. Choose a FOUND combination or request the file.
+                  </div>
+                ) : null}
                 {retryError ? <div className="form-error">{retryError}</div> : null}
                 <button className="primary-action delivery-path-action" type="button" disabled={!canRetryAvailable || retrying} onClick={() => void retryAvailableBuild()}>
                   {retrying ? <Loader2 className="spin" size={16} /> : <Search size={16} />}
@@ -2407,6 +2493,7 @@ function BuilderPage({
         addon_keys: addons,
         vehicle_label: vehicle,
         ecu_label: ecu,
+        scan_id: scanJob?.id,
         save_project: false,
         project_name: vehicle || file.name,
       });
@@ -2418,17 +2505,34 @@ function BuilderPage({
     }
   }
 
-  const selectedUnavailableCount = (baseTune && !isFoundOption(matchResult, 'base_tunes', baseTune) ? 1 : 0)
-    + addons.filter((key) => !isFoundOption(matchResult, 'addon_keys', key)).length;
+  const selectionStatus = (selectionBase: string, selectionAddons: string[]): SelectionStatus => (
+    isBuildableSelection(matchResult, selectionBase, selectionAddons)
+      ? 'found'
+      : isCandidateSelection(matchResult, selectionBase, selectionAddons)
+        ? 'candidate'
+        : 'request'
+  );
+  const baseOptionStatus = (key: string) => selectionStatus(key, addons);
+  const addonOptionStatus = (key: string) => selectionStatus(
+    baseTune,
+    addons.includes(key) ? addons : [...addons, key],
+  );
+  const hasSelectedOptions = Boolean(baseTune) || addons.length > 0;
+  const selectedCombinationFound = hasSelectedOptions && isBuildableSelection(matchResult, baseTune, addons);
+  const selectedCombinationCandidate = hasSelectedOptions && isCandidateSelection(matchResult, baseTune, addons);
+  const selectedUnavailableCount = hasSelectedOptions && !selectedCombinationFound && !selectedCombinationCandidate ? 1 : 0;
   const hasRequestSelection = selectedUnavailableCount > 0;
-  const submitActionLabel = hasRequestSelection ? 'Request file' : 'Build file';
+  const submitActionLabel = hasRequestSelection ? 'Request file' : selectedCombinationCandidate ? 'Validate & build' : 'Build file';
   const submitActionIcon = hasRequestSelection ? <FolderPlus size={17} /> : <FileCog size={17} />;
   const scanned = Boolean(matchResult);
   const sortedAddonOptions = ADDON_OPTIONS
-    .map((option, index) => ({ option, index, found: isFoundOption(matchResult, 'addon_keys', option.key) }))
-    .sort((left, right) => Number(right.found) - Number(left.found) || left.index - right.index)
+    .map((option, index) => ({ option, index, status: addonOptionStatus(option.key) }))
+    .sort((left, right) => {
+      const priority: Record<SelectionStatus, number> = { found: 2, candidate: 1, request: 0 };
+      return priority[right.status] - priority[left.status] || left.index - right.index;
+    })
     .map((entry) => entry.option);
-  const foundAddonCount = sortedAddonOptions.filter((option) => isFoundOption(matchResult, 'addon_keys', option.key)).length;
+  const foundAddonCount = sortedAddonOptions.filter((option) => addonOptionStatus(option.key) === 'found').length;
   const addonPageSize = Math.max(12, Math.min(ADDON_OPTIONS.length, foundAddonCount || 0));
   const addonPageCount = Math.max(1, Math.ceil(sortedAddonOptions.length / addonPageSize));
   const activeAddonPage = Math.min(addonPage, addonPageCount - 1);
@@ -2789,7 +2893,9 @@ function BuilderPage({
                 <div className="stage-list">
                   <span className="block-label">Stage / version</span>
                   {BASE_OPTIONS.map((option) => {
-                    const found = isFoundOption(matchResult, 'base_tunes', option.key);
+                    const status = baseOptionStatus(option.key);
+                    const found = status === 'found';
+                    const candidate = status === 'candidate';
                     const gainText = stageGainText(matchResult, option.key);
                     return (
                       <button
@@ -2801,9 +2907,9 @@ function BuilderPage({
                         <span className="stage-radio" />
                         <div>
                           <strong>{option.label}</strong>
-                          <small>{gainText || option.hint || (found ? 'Ready to build' : 'Can be requested')}</small>
+                          <small>{gainText || option.hint || (found ? 'Ready to build' : candidate ? 'Needs final validation' : 'Can be requested')}</small>
                         </div>
-                        <em>{found ? 'Found' : 'Request'}</em>
+                        <em>{found ? 'Found' : candidate ? 'Check' : 'Request'}</em>
                       </button>
                     );
                   })}
@@ -2839,7 +2945,9 @@ function BuilderPage({
                   </div>
                   <div className="addon-option-grid">
                     {visibleAddonOptions.map((option) => {
-                      const found = isFoundOption(matchResult, 'addon_keys', option.key);
+                      const status = addonOptionStatus(option.key);
+                      const found = status === 'found';
+                      const candidate = status === 'candidate';
                       const selected = addons.includes(option.key);
                       return (
                         <button
@@ -2852,7 +2960,7 @@ function BuilderPage({
                           <span className="addon-copy">
                             <strong>{option.label}</strong>
                             <small>{option.group}</small>
-                            <em className="addon-availability">{found ? 'Found' : 'Request'}</em>
+                            <em className="addon-availability">{found ? 'Found' : candidate ? 'Check' : 'Request'}</em>
                           </span>
                           <span className="addon-state">{selected ? <Check size={13} strokeWidth={3} /> : null}</span>
                         </button>
@@ -2903,7 +3011,7 @@ function BuilderPage({
                   <span>Package cost:</span>
                   <strong>Included</strong>
                   <span>Delivery:</span>
-                  <strong>{scanned ? (hasRequestSelection ? 'Request required' : 'Ready to build') : 'Pending'}</strong>
+                  <strong>{scanned ? (hasRequestSelection ? 'Request required' : selectedCombinationCandidate ? 'Validation required' : 'Ready to build') : 'Pending'}</strong>
                 </div>
               </div>
             </div>

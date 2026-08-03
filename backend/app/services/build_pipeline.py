@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import itertools
 import logging
 import re
 from pathlib import Path
@@ -174,6 +175,63 @@ def option_signature(base_key: str | None, addon_keys: list[str] | None) -> str:
     return "|".join([f"base={base}", f"addons={','.join(addons)}"])
 
 
+def buildable_selection(
+    *,
+    base_key: str | None,
+    addon_keys: list[str] | None,
+    source: str,
+    strategy: str,
+    cache_id: str | None = None,
+) -> dict[str, Any]:
+    base = str(base_key or "").strip().upper()
+    addons = sorted({str(key or "").strip().upper() for key in list(addon_keys or []) if str(key or "").strip()})
+    entry: dict[str, Any] = {
+        "signature": option_signature(base, addons),
+        "base_tune": base,
+        "addon_keys": addons,
+        "source": str(source or "").strip(),
+        "strategy": str(strategy or "").strip(),
+    }
+    if cache_id:
+        entry["cache_id"] = str(cache_id)
+    return entry
+
+
+def append_buildable_selection(entries: list[dict[str, Any]], entry: dict[str, Any]) -> None:
+    signature = str(entry.get("signature") or "").strip()
+    if not signature or any(str(item.get("signature") or "").strip() == signature for item in entries):
+        return
+    entries.append(entry)
+
+
+def offer_buildable_selections(offer: dict[str, Any] | None) -> list[dict[str, Any]]:
+    availability = (offer or {}).get("availability") if isinstance((offer or {}).get("availability"), dict) else {}
+    raw_entries = availability.get("buildable_selections")
+    return [entry for entry in list(raw_entries or []) if isinstance(entry, dict)]
+
+
+def offer_selection_is_buildable(
+    offer: dict[str, Any] | None,
+    *,
+    base_key: str | None,
+    addon_keys: list[str] | None,
+) -> bool:
+    signature = option_signature(base_key, addon_keys)
+    entries = offer_buildable_selections(offer)
+    if entries:
+        return any(str(entry.get("signature") or "").strip() == signature for entry in entries)
+
+    # Legacy scan payloads only carried the union of available keys. A single
+    # option is safe to revalidate, but never infer a multi-option combination.
+    base = str(base_key or "").strip().upper()
+    addons = sorted({str(key or "").strip().upper() for key in list(addon_keys or []) if str(key or "").strip()})
+    if (1 if base else 0) + len(addons) != 1:
+        return False
+    if base:
+        return base in {str(key or "").strip().upper() for key in list((offer or {}).get("base_tunes") or [])}
+    return addons[0] in {str(key or "").strip().upper() for key in list((offer or {}).get("addon_keys") or [])}
+
+
 def first_successful_patch_output(payload: dict[str, Any]) -> tuple[bytes, str] | None:
     candidates = payload.get("candidates") if isinstance(payload, dict) else None
     if not isinstance(candidates, list):
@@ -188,6 +246,37 @@ def first_successful_patch_output(payload: dict[str, Any]) -> tuple[bytes, str] 
         filename = str(output.get("filename") or "apex-patched.bin")
         return base64.b64decode(content_b64), filename
     return None
+
+
+def successful_patch_project_ids(payload: dict[str, Any]) -> set[str]:
+    candidates = payload.get("candidates") if isinstance(payload, dict) else None
+    if not isinstance(candidates, list):
+        return set()
+    project_ids: set[str] = set()
+    for candidate in candidates:
+        if not isinstance(candidate, dict) or str(candidate.get("status") or "").strip().lower() != "success":
+            continue
+        project = candidate.get("project") if isinstance(candidate.get("project"), dict) else {}
+        project_id = str(project.get("id") or candidate.get("project_id") or "").strip()
+        if project_id:
+            project_ids.add(project_id)
+    return project_ids
+
+
+def offer_candidate_selections(offer: dict[str, Any] | None) -> list[dict[str, Any]]:
+    availability = (offer or {}).get("availability") if isinstance((offer or {}).get("availability"), dict) else {}
+    raw_entries = availability.get("candidate_selections")
+    return [entry for entry in list(raw_entries or []) if isinstance(entry, dict)]
+
+
+def offer_selection_is_candidate(
+    offer: dict[str, Any] | None,
+    *,
+    base_key: str | None,
+    addon_keys: list[str] | None,
+) -> bool:
+    signature = option_signature(base_key, addon_keys)
+    return any(str(entry.get("signature") or "").strip() == signature for entry in offer_candidate_selections(offer))
 
 
 def patch_success_count(payload: dict[str, Any]) -> int:
@@ -601,6 +690,129 @@ def select_delivery_candidate(
     return None, None, None, []
 
 
+def prepared_delivery_strategy(
+    match: dict[str, Any] | None,
+    project: dict[str, Any] | None,
+    direct_version: dict[str, Any] | None,
+    merge_versions: list[dict[str, Any]],
+) -> str | None:
+    if not isinstance(project, dict):
+        return None
+    if direct_version:
+        if is_fileserver_library_exact(match, project):
+            package = select_fileserver_package(match, project, direct_version)
+            return "fileserver_direct" if str((package or {}).get("final_file_blob_id") or "").strip() else None
+        try:
+            project_live_identifiers(project)
+        except RevtechClientError:
+            return None
+        return "exact_match"
+    if merge_versions:
+        if is_fileserver_library_exact(match, project):
+            return None
+        try:
+            project_live_identifiers(project)
+        except RevtechClientError:
+            return None
+        return "version_merge"
+    return None
+
+
+def database_buildable_selections(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    base_keys, addon_keys = matched_option_keys_from_matches(matches)
+    normalized_bases = [key for key in BASE_LABELS if key in base_keys]
+    normalized_addons = [key for key in ADDON_LABELS if key in addon_keys]
+    max_addon_count = len(normalized_addons) if len(normalized_addons) <= 8 else min(3, len(normalized_addons))
+    addon_combinations = [
+        list(combination)
+        for count in range(max_addon_count + 1)
+        for combination in itertools.combinations(normalized_addons, count)
+    ]
+
+    selections: list[dict[str, Any]] = []
+    for base_key in ["", *normalized_bases]:
+        for addons in addon_combinations:
+            if not base_key and not addons:
+                continue
+            match, project, direct_version, merge_versions = select_delivery_candidate(matches, base_key, addons)
+            strategy = prepared_delivery_strategy(match, project, direct_version, merge_versions)
+            if not strategy:
+                continue
+            project_meta = project.get("extra_meta") if isinstance(project, dict) and isinstance(project.get("extra_meta"), dict) else {}
+            match_meta = match.get("match_meta") if isinstance(match, dict) and isinstance(match.get("match_meta"), dict) else {}
+            source = str(
+                project_meta.get("source")
+                or project_meta.get("source_kind")
+                or match_meta.get("match_source")
+                or "database"
+            ).strip()
+            append_buildable_selection(
+                selections,
+                buildable_selection(
+                    base_key=base_key,
+                    addon_keys=addons,
+                    source=source,
+                    strategy=strategy,
+                ),
+            )
+    return selections
+
+
+def adaptation_candidate_selections(
+    matches: list[dict[str, Any]],
+    *,
+    prepared_signatures: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    prepared = set(prepared_signatures or set())
+    projects_by_signature: dict[str, set[str]] = {}
+    selection_values: dict[str, tuple[str, list[str]]] = {}
+
+    for match in matches:
+        project = match.get("project") if isinstance(match, dict) else None
+        if not isinstance(project, dict) or not requires_patch_adaptation(match, project):
+            continue
+        base_keys, addon_keys = matched_option_keys(match, project)
+        normalized_bases = [key for key in BASE_LABELS if key in base_keys]
+        normalized_addons = [key for key in ADDON_LABELS if key in addon_keys]
+        max_addon_count = len(normalized_addons) if len(normalized_addons) <= 8 else min(3, len(normalized_addons))
+        project_meta = project.get("extra_meta") if isinstance(project.get("extra_meta"), dict) else {}
+        project_identity = str(
+            project.get("id")
+            or project.get("original_filename")
+            or project_meta.get("winols_project_filename")
+            or ""
+        ).strip()
+        if not project_identity:
+            continue
+
+        for base_key in ["", *normalized_bases]:
+            for addon_count in range(max_addon_count + 1):
+                for addons_tuple in itertools.combinations(normalized_addons, addon_count):
+                    addons = list(addons_tuple)
+                    if not base_key and not addons:
+                        continue
+                    direct_version, merge_versions = select_versions(project, base_key, addons)
+                    if not direct_version and not merge_versions:
+                        continue
+                    signature = option_signature(base_key, addons)
+                    if signature in prepared:
+                        continue
+                    projects_by_signature.setdefault(signature, set()).add(project_identity)
+                    selection_values[signature] = (base_key, sorted(addons))
+
+    return [
+        {
+            "signature": signature,
+            "base_tune": selection_values[signature][0],
+            "addon_keys": selection_values[signature][1],
+            "source": "patch_adaptation",
+            "strategy": "validate_patch_adaptation",
+            "candidate_project_count": len(project_ids),
+        }
+        for signature, project_ids in sorted(projects_by_signature.items())
+    ]
+
+
 def build_match_offer(
     match_payload: dict[str, Any],
     *,
@@ -763,6 +975,22 @@ def get_cached_delivery(db: Session, *, source_sha256: str, base_key: str | None
     return None
 
 
+def linked_scan_offer(db: Session, job: BuildJob) -> dict[str, Any] | None:
+    scan_id = str((job.requested_options or {}).get("scan_id") or "").strip()
+    if not scan_id:
+        return None
+    scan = db.get(BuildScan, scan_id)
+    if (
+        scan is None
+        or scan.user_id != job.user_id
+        or scan.source_sha256 != job.source_sha256
+        or str(scan.status or "").strip().lower() != "ready"
+        or not isinstance(scan.result_payload, dict)
+    ):
+        return None
+    return dict(scan.result_payload)
+
+
 def store_delivery_cache(
     db: Session,
     *,
@@ -822,6 +1050,7 @@ async def process_build_scan(scan_id: str) -> None:
         update_scan(db, scan_id, status="scanning", progress=8, current_stage="Fingerprinting file")
         update_scan(db, scan_id, progress=12, current_stage="Scanning database and version merge candidates")
         match_payload = await client.match_bin(file_path, max_matches=50, exact_only=False)
+        matches = [match for match in list(match_payload.get("matches") or []) if isinstance(match, dict)]
         offer = build_match_offer(
             match_payload,
             source_filename=scan.source_filename,
@@ -834,8 +1063,7 @@ async def process_build_scan(scan_id: str) -> None:
             logger.exception("Could not resolve Revtech vehicle gains for Apex scan")
             offer["stage_gains"] = {}
 
-        base_keys = set(read for read in list(offer.get("base_tunes") or []) if isinstance(read, str))
-        addon_keys = set(read for read in list(offer.get("addon_keys") or []) if isinstance(read, str))
+        buildable_selections = database_buildable_selections(matches)
         availability: dict[str, Any] = {
             "base_tunes": {
                 key: {
@@ -856,21 +1084,8 @@ async def process_build_scan(scan_id: str) -> None:
                 for key in ADDON_LABELS
             },
             "patch_candidates": [],
+            "buildable_selections": buildable_selections,
         }
-        for key in sorted(base_keys):
-            availability["base_tunes"][key] = {
-                "source": "database",
-                "strategy": "direct_or_merge",
-                "status": "found",
-                "label": BASE_NAMES.get(key, key),
-            }
-        for key in sorted(addon_keys):
-            availability["addon_keys"][key] = {
-                "source": "database",
-                "strategy": "direct_or_merge",
-                "status": "found",
-                "label": ADDON_NAMES.get(key, key),
-            }
 
         scan_items: list[tuple[str, str, list[str]]] = [
             *[("base", key, []) for key in PATCH_SCAN_BASE_KEYS],
@@ -905,52 +1120,72 @@ async def process_build_scan(scan_id: str) -> None:
 
             success_count = patch_success_count(payload)
             output = first_successful_patch_output(payload)
+            project_ids = successful_patch_project_ids(payload)
             candidate_meta = {
                 "kind": kind,
                 "base_key": base_key,
                 "addon_keys": addons,
                 "label": label,
-                "status": "found" if success_count else "not_found",
+                "status": "found" if output is not None else "not_found",
                 "success_count": success_count,
+                "candidate_project_count": len(project_ids),
                 "message": payload.get("message"),
                 "duration_ms": payload.get("duration_ms"),
             }
-            if success_count:
-                if kind == "base" and base_key:
-                    base_keys.add(base_key)
-                    availability["base_tunes"][base_key] = {
-                        "source": "patch_adaptation",
-                        "strategy": "non_exact_patch",
-                        "status": "found",
-                        "label": BASE_NAMES.get(base_key, base_key),
-                        "success_count": success_count,
-                    }
-                elif kind == "addon" and addons:
-                    addon_keys.update(addons)
-                    for addon in addons:
-                        availability["addon_keys"][addon] = {
-                            "source": "patch_adaptation",
-                            "strategy": "non_exact_patch",
-                            "status": "found",
-                            "label": ADDON_NAMES.get(addon, addon),
-                            "success_count": success_count,
-                        }
-                if output:
-                    content, filename = output
-                    cache = store_delivery_cache(
-                        db,
-                        settings=settings,
-                        source_sha256=scan.source_sha256,
+            if output:
+                content, filename = output
+                cache = store_delivery_cache(
+                    db,
+                    settings=settings,
+                    source_sha256=scan.source_sha256,
+                    base_key=base_key,
+                    addon_keys=addons,
+                    result_filename=filename,
+                    content=content,
+                    strategy="patch_adaptation_scan",
+                    revtech_payload={"patch_adaptation": payload, "apex_offer": offer, "scan_id": scan_id},
+                )
+                candidate_meta["cache_id"] = cache.id
+                candidate_meta["result_sha256"] = cache.result_sha256
+                append_buildable_selection(
+                    buildable_selections,
+                    buildable_selection(
                         base_key=base_key,
                         addon_keys=addons,
-                        result_filename=filename,
-                        content=content,
-                        strategy="patch_adaptation_scan",
-                        revtech_payload={"patch_adaptation": payload, "apex_offer": offer, "scan_id": scan_id},
-                    )
-                    candidate_meta["cache_id"] = cache.id
-                    candidate_meta["result_sha256"] = cache.result_sha256
+                        source="patch_adaptation",
+                        strategy="cached_patch_adaptation",
+                        cache_id=cache.id,
+                    ),
+                )
             availability["patch_candidates"].append(candidate_meta)
+
+        availability["candidate_selections"] = adaptation_candidate_selections(
+            matches,
+            prepared_signatures={str(entry.get("signature") or "") for entry in buildable_selections},
+        )
+        base_keys: set[str] = set()
+        addon_keys: set[str] = set()
+        for selection in buildable_selections:
+            selection_base = str(selection.get("base_tune") or "").strip().upper()
+            selection_addons = [str(key or "").strip().upper() for key in list(selection.get("addon_keys") or [])]
+            if selection_base in BASE_LABELS:
+                base_keys.add(selection_base)
+                availability["base_tunes"][selection_base] = {
+                    "source": selection.get("source") or "database",
+                    "strategy": selection.get("strategy") or "prepared",
+                    "status": "found",
+                    "label": BASE_NAMES.get(selection_base, selection_base),
+                }
+            for addon in selection_addons:
+                if addon not in ADDON_LABELS:
+                    continue
+                addon_keys.add(addon)
+                availability["addon_keys"][addon] = {
+                    "source": selection.get("source") or "database",
+                    "strategy": selection.get("strategy") or "prepared",
+                    "status": "found",
+                    "label": ADDON_NAMES.get(addon, addon),
+                }
 
         offer["base_tunes"] = [key for key in BASE_LABELS if key in base_keys]
         offer["addon_keys"] = [key for key in ADDON_LABELS if key in addon_keys]
@@ -994,6 +1229,12 @@ async def process_build_job(job_id: str) -> None:
 
         file_path = Path(job.source_path)
         addon_keys = list((job.requested_options or {}).get("addon_keys") or [])
+        scan_offer = linked_scan_offer(db, job)
+        if scan_offer is not None:
+            failure_payload = {
+                "apex_offer": scan_offer,
+                "scan_id": str((job.requested_options or {}).get("scan_id") or ""),
+            }
         cached = get_cached_delivery(
             db,
             source_sha256=job.source_sha256,
@@ -1041,7 +1282,10 @@ async def process_build_job(job_id: str) -> None:
             source_sha256=job.source_sha256,
             source_size_bytes=job.source_size_bytes,
         )
-        failure_payload = {"apex_offer": offer}
+        failure_payload = {
+            "apex_offer": scan_offer or offer,
+            **({"match_offer": offer} if scan_offer is not None else {}),
+        }
         exact_match = exact_or_strong_match(matches)
 
         strategy = "exact_match" if exact_match else "patch_adaptation"

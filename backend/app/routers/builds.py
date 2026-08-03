@@ -17,7 +17,17 @@ from ..database import get_db
 from ..deps import get_current_user
 from ..models import BuildJob, BuildScan, Project, Subscription, User, as_utc, utcnow
 from ..schemas import BuildJobListOut, BuildJobOut, BuildMatchOut, BuildScanOut, ProjectOut
-from ..services.build_pipeline import build_match_offer, customer_result_filename, customer_safe_error, normalize_filename_part, process_build_job, process_build_scan, sha256_file
+from ..services.build_pipeline import (
+    build_match_offer,
+    customer_result_filename,
+    customer_safe_error,
+    normalize_filename_part,
+    offer_selection_is_buildable,
+    offer_selection_is_candidate,
+    process_build_job,
+    process_build_scan,
+    sha256_file,
+)
 from ..services.revtech_client import RevtechClient
 from ..settings import get_settings
 
@@ -84,6 +94,39 @@ def ensure_subscription_available(subscription: Subscription | None) -> None:
         raise HTTPException(status_code=402, detail="Your subscription is not active")
     if subscription.files_used_this_period >= subscription.monthly_file_limit:
         raise HTTPException(status_code=402, detail="Monthly file limit reached for your current package")
+
+
+def validated_scan_offer(
+    db: Session,
+    *,
+    scan_id: str | None,
+    user_id: str,
+    source_sha256: str,
+) -> tuple[BuildScan | None, dict[str, Any] | None]:
+    normalized_scan_id = str(scan_id or "").strip()
+    scan = (
+        db.get(BuildScan, normalized_scan_id)
+        if normalized_scan_id
+        else (
+            db.query(BuildScan)
+            .filter(
+                BuildScan.user_id == user_id,
+                BuildScan.source_sha256 == source_sha256,
+                BuildScan.status == "ready",
+            )
+            .order_by(desc(BuildScan.created_at))
+            .first()
+        )
+    )
+    if scan is None and not normalized_scan_id:
+        return None, None
+    if scan is None or scan.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Build scan not found")
+    if str(scan.status or "").strip().lower() != "ready" or not isinstance(scan.result_payload, dict):
+        raise HTTPException(status_code=409, detail="Build scan is not ready")
+    if scan.source_sha256 != source_sha256:
+        raise HTTPException(status_code=409, detail="Build scan does not belong to this file")
+    return scan, dict(scan.result_payload)
 
 
 def build_job_display_filename(row: BuildJob) -> str | None:
@@ -262,6 +305,7 @@ async def create_build(
     vehicle_label: str = Form(""),
     ecu_label: str = Form(""),
     project_id: str | None = Form(None),
+    scan_id: str | None = Form(None),
     save_project: bool = Form(False),
     project_name: str = Form(""),
     user: User = Depends(get_current_user),
@@ -308,6 +352,26 @@ async def create_build(
     job.source_path = str(source_path)
     job.source_size_bytes = source_path.stat().st_size
     job.source_sha256 = sha256_file(source_path)
+    scan, scan_offer = validated_scan_offer(
+        db,
+        scan_id=scan_id,
+        user_id=user.id,
+        source_sha256=job.source_sha256,
+    )
+    if scan is not None:
+        job.requested_options = {"addon_keys": addons, "scan_id": scan.id}
+        job.revtech_payload = {"apex_offer": scan_offer or {}, "scan_id": scan.id}
+        selection_is_buildable = offer_selection_is_buildable(scan_offer, base_key=base_key, addon_keys=addons)
+        selection_is_candidate = offer_selection_is_candidate(scan_offer, base_key=base_key, addon_keys=addons)
+        if not selection_is_buildable and not selection_is_candidate:
+            job.status = "failed"
+            job.progress = 100
+            job.current_stage = "Request required"
+            job.strategy = "request_required"
+            job.error_message = (
+                "The selected combination was not found as a prepared file. "
+                "Choose a FOUND combination or request this file."
+            )
 
     project: Project | None = None
     if project_id:
@@ -337,7 +401,8 @@ async def create_build(
         db.add(project)
         db.commit()
 
-    background_tasks.add_task(run_job, job.id)
+    if job.status != "failed":
+        background_tasks.add_task(run_job, job.id)
     return build_job_out(job)
 
 
@@ -364,6 +429,21 @@ def retry_build_with_available_options(
     if not original.source_path or not Path(original.source_path).exists():
         raise HTTPException(status_code=409, detail="The original uploaded file is no longer available")
 
+    source_request = (
+        (original.requested_options or {}).get("source_request")
+        if isinstance((original.requested_options or {}).get("source_request"), dict)
+        else {}
+    )
+    scan_id = str((original.requested_options or {}).get("scan_id") or source_request.get("scan_id") or "").strip()
+    scan, scan_offer = validated_scan_offer(
+        db,
+        scan_id=scan_id,
+        user_id=user.id,
+        source_sha256=original.source_sha256,
+    )
+    if scan is not None and not offer_selection_is_buildable(scan_offer, base_key=base_key, addon_keys=addons):
+        raise HTTPException(status_code=409, detail="This exact option combination is not available for instant build")
+
     job = BuildJob(
         user_id=user.id,
         project_id=original.project_id,
@@ -378,7 +458,9 @@ def retry_build_with_available_options(
             "addon_keys": addons,
             "retry_of": original.id,
             "source_request": original.requested_options or {},
+            **({"scan_id": scan.id} if scan is not None else {}),
         },
+        revtech_payload={"apex_offer": scan_offer or {}, "scan_id": scan.id} if scan is not None else None,
     )
     db.add(job)
     db.commit()

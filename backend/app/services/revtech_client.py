@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -58,6 +59,14 @@ def _to_int(value: Any) -> int | None:
         return int(round(float(str(value).replace(",", ".").strip())))
     except (TypeError, ValueError):
         return None
+
+
+def _file_sha256(file_path: Path) -> str:
+    digest = hashlib.sha256()
+    with file_path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _score_text(candidate_values: list[Any], query_values: list[Any]) -> int:
@@ -330,6 +339,62 @@ class RevtechClient:
             raise RevtechClientError(response.text or f"Revtech match failed with {response.status_code}")
         return response.json()
 
+    async def scan_plan(
+        self,
+        file_path: Path,
+        *,
+        max_matches: int = 100,
+        selected_ecu_combo: str | None = None,
+        selected_brand: str | None = None,
+        selected_model: str | None = None,
+        selected_generation: str | None = None,
+    ) -> dict[str, Any]:
+        expected_sha256 = _file_sha256(file_path)
+        expected_size = file_path.stat().st_size
+        data = {"max_matches": str(max_matches)}
+        for key, value in (
+            ("selected_ecu_combo", selected_ecu_combo),
+            ("selected_brand", selected_brand),
+            ("selected_model", selected_model),
+            ("selected_generation", selected_generation),
+        ):
+            clean_value = _clean_text(value)
+            if clean_value:
+                data[key] = clean_value
+
+        with file_path.open("rb") as handle:
+            files = {"file": (file_path.name, handle, "application/octet-stream")}
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    f"{self.base_url}/admin/fileserver/ols/live/patch-adaptation/scan-plan",
+                    headers=self._headers(),
+                    data=data,
+                    files=files,
+                )
+
+        if response.status_code in {404, 405}:
+            return await self.match_bin(file_path, max_matches=max_matches, exact_only=False)
+        if response.status_code >= 400:
+            raise RevtechClientError(response.text or f"Revtech scan plan failed with {response.status_code}")
+
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        bin_payload = payload.get("bin") if isinstance(payload, dict) and isinstance(payload.get("bin"), dict) else {}
+        matches = payload.get("matches") if isinstance(payload, dict) else None
+        compatible_bin = (
+            str(bin_payload.get("sha256") or "").strip().lower() == expected_sha256
+            and _to_int(bin_payload.get("size_bytes")) == expected_size
+        )
+        compatible_matches = isinstance(matches, list) and all(
+            isinstance(match, dict) and isinstance(match.get("project"), dict)
+            for match in matches
+        )
+        if not compatible_bin or not compatible_matches:
+            return await self.match_bin(file_path, max_matches=max_matches, exact_only=False)
+        return payload
+
     async def export_version(
         self,
         file_path: Path,
@@ -418,8 +483,8 @@ class RevtechClient:
             file_path,
             base_key=base_key,
             addon_keys=addon_keys,
-            max_matches=50,
-            max_candidates=8,
+            max_matches=100,
+            max_candidates=100,
             include_output=True,
         )
         candidates = payload.get("candidates") or []

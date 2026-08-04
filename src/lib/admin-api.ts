@@ -60,6 +60,44 @@ export type AdminUser = {
   recent_purchases?: AdminPurchase[];
 };
 
+export type AdminBuildSummary = {
+  id: string;
+  project_id: string | null;
+  source_filename: string;
+  source_size_bytes: number;
+  vehicle_label: string;
+  ecu_label: string;
+  base_tune: string;
+  requested_options: Record<string, unknown>;
+  status: string;
+  progress: number;
+  current_stage: string;
+  strategy: string | null;
+  result_filename: string | null;
+  result_sha256: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AdminUserProject = {
+  id: string;
+  user_id: string;
+  name: string;
+  vehicle_label: string;
+  ecu_label: string;
+  source_filename: string;
+  source_sha256: string;
+  requested_options: Record<string, unknown>;
+  last_build_id: string | null;
+  last_build: AdminBuildSummary | null;
+  build_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AdminProject = AdminUserProject;
+
 export type AdminAuditEvent = {
   id: string;
   action: string;
@@ -143,6 +181,20 @@ export type AdminSubscriptionQuery = {
   sort?: string;
   direction?: 'asc' | 'desc';
 };
+
+export type AdminUserProjectQuery = {
+  search?: string;
+  page?: number;
+  page_size?: number;
+  sort?: 'updated_at' | 'created_at' | 'name';
+  direction?: 'asc' | 'desc';
+};
+
+export type AdminProjectQuery = AdminUserProjectQuery;
+
+export type UpdateAdminUserInput = Partial<Pick<AdminUser,
+  'email' | 'display_name' | 'company_name' | 'vat_number' | 'phone_number' | 'country' | 'role'
+>>;
 
 export type CreateAdminUserInput = {
   email: string;
@@ -345,6 +397,12 @@ export async function getAdminUser(userId: string) {
 export async function createAdminUser(input: CreateAdminUserInput) {
   return normalizeUser(await adminFetch<RawAdminUser>('/admin/users', { method: 'POST', body: JSON.stringify(input) }));
 }
+export async function updateAdminUserProfile(userId: string, input: UpdateAdminUserInput) {
+  return normalizeUser(await adminFetch<RawAdminUser>(`/admin/users/${encodeURIComponent(userId)}`, { method: 'PATCH', body: JSON.stringify(input) }));
+}
+export const updateAdminUser = updateAdminUserProfile;
+export const listAdminUserProjects = (userId: string, input: AdminUserProjectQuery = {}) =>
+  adminFetch<AdminPage<AdminUserProject>>(`/admin/users/${encodeURIComponent(userId)}/projects${queryString(input)}`);
 export async function setAdminUserStatus(userId: string, isActive: boolean) {
   return normalizeUser(await adminFetch<RawAdminUser>(`/admin/users/${encodeURIComponent(userId)}/status`, { method: 'PATCH', body: JSON.stringify({ is_active: isActive }) }));
 }
@@ -355,7 +413,7 @@ export const resetAdminUserPassword = (userId: string, temporaryPassword: string
   });
 export const updateAdminUserSubscription = (
   userId: string,
-  input: Partial<Pick<AdminSubscription, 'package_key' | 'plan_name' | 'monthly_file_limit' | 'files_used_this_period' | 'period_started_at' | 'period_ends_at' | 'status'>>,
+  input: Partial<Pick<AdminSubscription, 'package_key' | 'plan_name' | 'monthly_file_limit' | 'period_started_at' | 'period_ends_at' | 'status'>>,
 ) => adminFetch<AdminSubscription>(`/admin/users/${encodeURIComponent(userId)}/subscription`, { method: 'PATCH', body: JSON.stringify(input) });
 export const listAdminSubscriptions = (input: AdminSubscriptionQuery = {}) =>
   adminFetch<AdminPage<AdminSubscriptionListItem>>(`/admin/subscriptions${queryString(input)}`);

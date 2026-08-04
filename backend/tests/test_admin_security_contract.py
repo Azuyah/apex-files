@@ -550,7 +550,7 @@ class AdminSecurityContractTests(unittest.TestCase):
         )
         self.assertEqual(too_short.status_code, 422)
 
-        subscription = self.client.patch(
+        rejected_usage_update = self.client.patch(
             f"/api/admin/users/{self.customer.id}/subscription",
             headers=self.admin_headers,
             json={
@@ -559,10 +559,17 @@ class AdminSecurityContractTests(unittest.TestCase):
                 "status": "active",
             },
         )
+        self.assertEqual(rejected_usage_update.status_code, 422)
+
+        subscription = self.client.patch(
+            f"/api/admin/users/{self.customer.id}/subscription",
+            headers=self.admin_headers,
+            json={"package_key": "lite", "status": "active"},
+        )
         self.assertEqual(subscription.status_code, 200)
         self.assertEqual(subscription.json()["plan_name"], "Apex Lite")
         self.assertEqual(subscription.json()["monthly_file_limit"], 20)
-        self.assertEqual(subscription.json()["files_used_this_period"], 7)
+        self.assertEqual(subscription.json()["files_used_this_period"], 0)
 
         invalid_period = self.client.patch(
             f"/api/admin/users/{self.customer.id}/subscription",

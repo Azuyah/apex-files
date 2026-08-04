@@ -74,6 +74,30 @@ class AdminBuildSummaryOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AdminProjectOut(BaseModel):
+    id: str
+    user_id: str
+    name: str
+    vehicle_label: str
+    ecu_label: str
+    source_filename: str
+    source_sha256: str
+    requested_options: dict = Field(default_factory=dict)
+    last_build_id: str | None
+    last_build: AdminBuildSummaryOut | None = None
+    build_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+
+class AdminProjectListOut(BaseModel):
+    items: list[AdminProjectOut]
+    total: int
+    page: int
+    page_size: int
+    pages: int
+
+
 class AdminAuditEventOut(BaseModel):
     id: str
     action: str
@@ -172,13 +196,15 @@ class AdminUserCreateIn(BaseModel):
 
 
 class AdminUserUpdateIn(BaseModel):
-    email: EmailStr | None = None
+    email: EmailStr | None = Field(default=None, max_length=255)
     display_name: str | None = Field(default=None, max_length=160)
     company_name: str | None = Field(default=None, max_length=180)
     vat_number: str | None = Field(default=None, max_length=80)
     phone_number: str | None = Field(default=None, max_length=80)
     country: str | None = Field(default=None, max_length=120)
     role: Literal["tuner", "admin"] | None = None
+
+    model_config = {"extra": "forbid"}
 
 
 class AdminUserStatusIn(BaseModel):
@@ -210,10 +236,11 @@ class AdminSubscriptionUpdateIn(BaseModel):
     package_key: PackageKey | None = None
     plan_name: str | None = Field(default=None, min_length=1, max_length=120)
     monthly_file_limit: int | None = Field(default=None, ge=0, le=1_000_000)
-    files_used_this_period: int | None = Field(default=None, ge=0, le=1_000_000)
     period_started_at: datetime | None = None
     period_ends_at: datetime | None = None
     status: SubscriptionStatus | None = None
+
+    model_config = {"extra": "forbid"}
 
     @model_validator(mode="after")
     def validate_period(self):

@@ -21,6 +21,8 @@ from ..admin_schemas import (
     AdminOverviewOut,
     AdminPasswordResetIn,
     AdminPasswordResetOut,
+    AdminProjectListOut,
+    AdminProjectOut,
     AdminPurchaseCreateIn,
     AdminPurchaseListOut,
     AdminPurchaseOut,
@@ -659,6 +661,104 @@ def get_user_detail(
     return _user_detail(db, _get_user_or_404(db, user_id))
 
 
+@router.get("/users/{user_id}/projects", response_model=AdminProjectListOut)
+def list_user_projects(
+    user_id: str,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100),
+    search: str = Query(default="", max_length=255),
+    sort: str = Query(default="updated_at", pattern="^(updated_at|created_at|name)$"),
+    direction: str = Query(default="desc", pattern="^(asc|desc)$"),
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+) -> AdminProjectListOut:
+    del admin
+    _get_user_or_404(db, user_id)
+
+    query = select(Project).where(Project.user_id == user_id)
+    count_query = select(func.count(Project.id)).where(Project.user_id == user_id)
+    normalized_search = search.strip()
+    if normalized_search:
+        search_filter = or_(
+            func.lower(Project.name).contains(normalized_search.lower(), autoescape=True),
+            func.lower(Project.vehicle_label).contains(normalized_search.lower(), autoescape=True),
+            func.lower(Project.ecu_label).contains(normalized_search.lower(), autoescape=True),
+            func.lower(Project.source_filename).contains(normalized_search.lower(), autoescape=True),
+        )
+        query = query.where(search_filter)
+        count_query = count_query.where(search_filter)
+
+    sort_column = {
+        "updated_at": Project.updated_at,
+        "created_at": Project.created_at,
+        "name": Project.name,
+    }[sort]
+    query = query.order_by(
+        sort_column.asc() if direction == "asc" else sort_column.desc(),
+        Project.id.asc(),
+    )
+    total = int(db.scalar(count_query) or 0)
+    projects = list(
+        db.scalars(query.offset((page - 1) * page_size).limit(page_size)).all()
+    )
+
+    project_ids = [project.id for project in projects]
+    build_counts: dict[str, int] = {}
+    last_builds: dict[str, BuildJob] = {}
+    if project_ids:
+        build_counts = {
+            str(project_id): int(count)
+            for project_id, count in db.execute(
+                select(BuildJob.project_id, func.count(BuildJob.id))
+                .where(BuildJob.user_id == user_id, BuildJob.project_id.in_(project_ids))
+                .group_by(BuildJob.project_id)
+            ).all()
+            if project_id is not None
+        }
+        last_build_ids = {
+            project.last_build_id for project in projects if project.last_build_id
+        }
+        if last_build_ids:
+            last_builds = {
+                build.id: build
+                for build in db.scalars(
+                    select(BuildJob).where(
+                        BuildJob.user_id == user_id,
+                        BuildJob.id.in_(last_build_ids),
+                    )
+                ).all()
+            }
+
+    return AdminProjectListOut(
+        items=[
+            AdminProjectOut(
+                id=project.id,
+                user_id=project.user_id,
+                name=project.name,
+                vehicle_label=project.vehicle_label,
+                ecu_label=project.ecu_label,
+                source_filename=project.source_filename,
+                source_sha256=project.source_sha256,
+                requested_options=project.requested_options or {},
+                last_build_id=project.last_build_id,
+                last_build=(
+                    AdminBuildSummaryOut.model_validate(last_builds[project.last_build_id])
+                    if project.last_build_id in last_builds
+                    else None
+                ),
+                build_count=build_counts.get(project.id, 0),
+                created_at=project.created_at,
+                updated_at=project.updated_at,
+            )
+            for project in projects
+        ],
+        total=total,
+        page=page,
+        page_size=page_size,
+        pages=_pages(total, page_size),
+    )
+
+
 @router.patch("/users/{user_id}", response_model=AdminUserDetailOut)
 def update_user_profile(
     user_id: str,
@@ -730,7 +830,11 @@ def update_user_profile(
             target_user_id=user.id,
             details={"before": before, "after": after, "sessions_revoked": identity_changed},
         )
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="An account already exists for this email")
         db.refresh(user)
     return _user_detail(db, user)
 
@@ -834,8 +938,6 @@ def update_user_subscription(
         subscription.plan_name = payload.plan_name.strip()
     if payload.monthly_file_limit is not None:
         subscription.monthly_file_limit = payload.monthly_file_limit
-    if payload.files_used_this_period is not None:
-        subscription.files_used_this_period = payload.files_used_this_period
     if payload.period_started_at is not None:
         subscription.period_started_at = payload.period_started_at
     if payload.period_ends_at is not None:

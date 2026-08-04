@@ -8,11 +8,12 @@ from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
-from app.models import AdminAuditEvent, Purchase, Subscription, User, utcnow
+from app.models import AdminAuditEvent, BuildJob, Project, Purchase, Subscription, User, utcnow
 from app.routers import admin as admin_router
 from app.routers import auth as auth_router
 from app.security import create_token, hash_password, read_token, verify_password
@@ -244,14 +245,27 @@ class AdminApiTests(unittest.TestCase):
         self.assertNotIn("source_path", serialized)
         self.assertNotIn("revtech_payload", serialized)
 
-        response = self.client.patch(
+        with self.Session() as db:
+            subscription = db.scalar(select(Subscription).where(Subscription.user_id == self.user.id))
+            subscription.files_used_this_period = 3
+            db.commit()
+
+        rejected_usage_update = self.client.patch(
             f"/api/admin/users/{self.user.id}/subscription",
             headers=self.admin_headers,
             json={"package_key": "lite", "files_used_this_period": 7},
         )
+        self.assertEqual(rejected_usage_update.status_code, 422)
+
+        response = self.client.patch(
+            f"/api/admin/users/{self.user.id}/subscription",
+            headers=self.admin_headers,
+            json={"package_key": "lite"},
+        )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["plan_name"], "Apex Lite")
         self.assertEqual(response.json()["monthly_file_limit"], 20)
+        self.assertEqual(response.json()["files_used_this_period"], 3)
 
         response = self.client.get(
             "/api/admin/subscriptions",
@@ -260,7 +274,185 @@ class AdminApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["total"], 1)
-        self.assertEqual(response.json()["items"][0]["files_used_this_period"], 7)
+        self.assertEqual(response.json()["items"][0]["files_used_this_period"], 3)
+
+    def test_profile_update_validates_fields_unique_email_and_records_audit(self):
+        response = self.client.patch(
+            f"/api/admin/users/{self.user.id}",
+            headers=self.admin_headers,
+            json={
+                "email": "RENAMED@Example.com",
+                "display_name": "  Renamed Customer  ",
+                "company_name": "  Updated Company  ",
+                "vat_number": "  SE999999999  ",
+                "phone_number": "  +46 70 123 45 67  ",
+                "country": "  Sweden  ",
+                "role": "admin",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        updated = response.json()
+        self.assertEqual(updated["email"], "renamed@example.com")
+        self.assertEqual(updated["display_name"], "Renamed Customer")
+        self.assertEqual(updated["company_name"], "Updated Company")
+        self.assertEqual(updated["vat_number"], "SE999999999")
+        self.assertEqual(updated["phone_number"], "+46 70 123 45 67")
+        self.assertEqual(updated["country"], "Sweden")
+        self.assertEqual(updated["role"], "admin")
+
+        with self.Session() as db:
+            collision = User(
+                email="collision@example.com",
+                password_hash=hash_password("collision-password"),
+            )
+            db.add(collision)
+            db.commit()
+
+        duplicate = self.client.patch(
+            f"/api/admin/users/{self.user.id}",
+            headers=self.admin_headers,
+            json={"email": "COLLISION@example.com"},
+        )
+        self.assertEqual(duplicate.status_code, 409)
+        self.assertEqual(
+            self.client.patch(
+                f"/api/admin/users/{self.user.id}",
+                headers=self.admin_headers,
+                json={"email": "not-an-email"},
+            ).status_code,
+            422,
+        )
+        self.assertEqual(
+            self.client.patch(
+                f"/api/admin/users/{self.user.id}",
+                headers=self.admin_headers,
+                json={"role": "owner"},
+            ).status_code,
+            422,
+        )
+        self.assertEqual(
+            self.client.patch(
+                f"/api/admin/users/{self.user.id}",
+                headers=self.admin_headers,
+                json={"password_hash": "must-not-be-writable"},
+            ).status_code,
+            422,
+        )
+
+        with patch.object(
+            self.Session.class_,
+            "commit",
+            side_effect=IntegrityError("unique users.email", {}, Exception("duplicate")),
+        ):
+            raced_duplicate = self.client.patch(
+                f"/api/admin/users/{self.user.id}",
+                headers=self.admin_headers,
+                json={"email": "race@example.com"},
+            )
+        self.assertEqual(raced_duplicate.status_code, 409)
+
+        with self.Session() as db:
+            event = db.scalar(
+                select(AdminAuditEvent).where(
+                    AdminAuditEvent.action == "user.profile_updated",
+                    AdminAuditEvent.target_user_id == self.user.id,
+                )
+            )
+            self.assertIsNotNone(event)
+            self.assertEqual(event.details["after"]["email"], "renamed@example.com")
+            self.assertTrue(event.details["sessions_revoked"])
+            self.assertNotIn("password", str(event.details).lower())
+
+    def test_admin_can_list_user_projects_with_safe_paginated_metadata(self):
+        with self.Session() as db:
+            first = Project(
+                user_id=self.user.id,
+                name="Audi A4",
+                vehicle_label="Audi A4 2.0 TDI",
+                ecu_label="EDC17C46",
+                source_filename="audi-original.bin",
+                source_sha256="1" * 64,
+                requested_options={"stage": "STAGE1", "options": ["EGR_OFF"]},
+            )
+            second = Project(
+                user_id=self.user.id,
+                name="Volvo V60",
+                vehicle_label="Volvo V60 D4",
+                ecu_label="EDC17CP48",
+                source_filename="volvo-original.bin",
+                source_sha256="2" * 64,
+            )
+            foreign = Project(
+                user_id=self.admin.id,
+                name="Admin-only project",
+                source_filename="private.bin",
+            )
+            db.add_all([first, second, foreign])
+            db.flush()
+            ready_build = BuildJob(
+                user_id=self.user.id,
+                project_id=first.id,
+                source_filename="audi-original.bin",
+                source_path="C:/private/uploads/audi.bin",
+                source_sha256="1" * 64,
+                source_size_bytes=2048,
+                vehicle_label=first.vehicle_label,
+                ecu_label=first.ecu_label,
+                status="ready",
+                progress=100,
+                current_stage="Ready",
+                result_filename="audi-stage1.bin",
+                result_path="C:/private/results/audi-stage1.bin",
+                result_sha256="3" * 64,
+                revtech_payload={"secret": "never-return-this"},
+            )
+            older_build = BuildJob(
+                user_id=self.user.id,
+                project_id=first.id,
+                source_filename="audi-original.bin",
+                source_path="C:/private/uploads/older-audi.bin",
+                source_sha256="1" * 64,
+                source_size_bytes=2048,
+                status="failed",
+                error_message="No match",
+            )
+            db.add_all([ready_build, older_build])
+            db.flush()
+            first.last_build_id = ready_build.id
+            db.commit()
+
+        page = self.client.get(
+            f"/api/admin/users/{self.user.id}/projects",
+            headers=self.admin_headers,
+            params={"page": 1, "page_size": 1, "sort": "name", "direction": "asc"},
+        )
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(page.json()["total"], 2)
+        self.assertEqual(page.json()["pages"], 2)
+        self.assertEqual(page.json()["items"][0]["name"], "Audi A4")
+        self.assertEqual(page.json()["items"][0]["build_count"], 2)
+        self.assertEqual(page.json()["items"][0]["last_build"]["status"], "ready")
+        self.assertNotIn("source_path", page.text)
+        self.assertNotIn("result_path", page.text)
+        self.assertNotIn("revtech_payload", page.text)
+        self.assertNotIn("never-return-this", page.text)
+
+        filtered = self.client.get(
+            f"/api/admin/users/{self.user.id}/projects",
+            headers=self.admin_headers,
+            params={"search": "volvo"},
+        )
+        self.assertEqual(filtered.status_code, 200)
+        self.assertEqual(filtered.json()["total"], 1)
+        self.assertEqual(filtered.json()["items"][0]["name"], "Volvo V60")
+        self.assertIsNone(filtered.json()["items"][0]["last_build"])
+        self.assertEqual(filtered.json()["items"][0]["build_count"], 0)
+
+        missing = self.client.get(
+            "/api/admin/users/does-not-exist/projects",
+            headers=self.admin_headers,
+        )
+        self.assertEqual(missing.status_code, 404)
 
     def test_create_purchase_is_idempotent_and_receipt_escapes_customer_data(self):
         payload = {

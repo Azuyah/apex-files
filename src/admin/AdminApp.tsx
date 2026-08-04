@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { FormEvent, ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import type { FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Activity,
   AlertTriangle,
@@ -14,9 +15,9 @@ import {
   Copy,
   CreditCard,
   Download,
-  Eye,
   FileCheck2,
   FileText,
+  FolderOpen,
   Gauge,
   KeyRound,
   LayoutDashboard,
@@ -50,10 +51,12 @@ import {
   getAdminUser,
   listAdminPurchases,
   listAdminSubscriptions,
+  listAdminUserProjects,
   listAdminUsers,
   readAdminToken,
   resetAdminUserPassword,
   setAdminUserStatus,
+  updateAdminUserProfile,
   updateAdminUserSubscription,
   type AdminOverview,
   type AdminPage,
@@ -62,6 +65,7 @@ import {
   type AdminSubscriptionListItem,
   type AdminSessionUser,
   type AdminUser,
+  type AdminUserProject,
 } from '../lib/admin-api';
 
 type AdminPageKey = 'overview' | 'users' | 'subscriptions' | 'purchases';
@@ -99,6 +103,14 @@ const PLAN_OPTIONS = [
   { key: 'lite', label: 'Apex Lite', limit: 20 },
   { key: 'pro', label: 'Apex Pro', limit: 9999 },
 ] as const;
+const PLAN_SELECT_OPTIONS = PLAN_OPTIONS.map((plan) => ({ value: plan.key, label: plan.label }));
+const ROLE_OPTIONS = [{ value: 'tuner', label: 'Tuner' }, { value: 'admin', label: 'Administrator' }];
+const ACCOUNT_STATUS_OPTIONS = [{ value: 'all', label: 'All statuses' }, { value: 'active', label: 'Active' }, { value: 'disabled', label: 'Disabled' }];
+const SUBSCRIPTION_STATUS_OPTIONS = [{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }, { value: 'past_due', label: 'Past due' }, { value: 'cancelled', label: 'Cancelled' }];
+const SUBSCRIPTION_FILTER_OPTIONS = [{ value: 'all', label: 'All statuses' }, ...SUBSCRIPTION_STATUS_OPTIONS];
+const PURCHASE_STATUS_OPTIONS = [{ value: 'paid', label: 'Paid' }, { value: 'pending', label: 'Pending' }, { value: 'refunded', label: 'Refunded' }, { value: 'void', label: 'Void' }];
+const PURCHASE_FILTER_OPTIONS = [{ value: 'all', label: 'All statuses' }, ...PURCHASE_STATUS_OPTIONS];
+const CURRENCY_OPTIONS = ['USD', 'EUR', 'SEK', 'GBP'].map((currency) => ({ value: currency, label: currency }));
 function money(cents: number | null | undefined, currency = 'USD') {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -180,6 +192,195 @@ function useDebounced<T>(value: T, delay = 300) {
   return debounced;
 }
 
+type CustomSelectOption = { value: string; label: string; disabled?: boolean };
+
+function CustomSelect({ value, options, onChange, ariaLabel, icon, disabled = false, className = '' }: {
+  value: string;
+  options: CustomSelectOption[];
+  onChange: (value: string) => void;
+  ariaLabel: string;
+  icon?: ReactNode;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [position, setPosition] = useState({ top: 0, left: 0, width: 180 });
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const typeaheadRef = useRef('');
+  const typeaheadTimerRef = useRef<number | null>(null);
+  const listboxId = useId();
+  const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value));
+  const selected = options[selectedIndex] || options[0];
+
+  const updatePosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const width = Math.min(Math.max(rect.width, 180), Math.max(180, window.innerWidth - 16));
+    const estimatedHeight = Math.min(options.length * 43 + 10, 286);
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const opensAbove = spaceBelow < estimatedHeight + 8 && rect.top > spaceBelow;
+    setPosition({
+      top: opensAbove ? Math.max(8, rect.top - estimatedHeight - 6) : rect.bottom + 6,
+      left: Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - width - 8)),
+      width,
+    });
+  }, [options.length]);
+
+  const openMenu = useCallback((index = selectedIndex) => {
+    if (disabled || !options.length) return;
+    setActiveIndex(Math.max(0, index));
+    updatePosition();
+    setOpen(true);
+  }, [disabled, options.length, selectedIndex, updatePosition]);
+
+  const closeMenu = useCallback(() => setOpen(false), []);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleOutside = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!triggerRef.current?.contains(target) && !menuRef.current?.contains(target)) closeMenu();
+    };
+    const handlePosition = () => updatePosition();
+    window.addEventListener('pointerdown', handleOutside);
+    window.addEventListener('resize', handlePosition);
+    window.addEventListener('scroll', handlePosition, true);
+    return () => {
+      window.removeEventListener('pointerdown', handleOutside);
+      window.removeEventListener('resize', handlePosition);
+      window.removeEventListener('scroll', handlePosition, true);
+    };
+  }, [closeMenu, open, updatePosition]);
+
+  useEffect(() => () => {
+    if (typeaheadTimerRef.current !== null) window.clearTimeout(typeaheadTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(`${listboxId}-${activeIndex}`)?.scrollIntoView({ block: 'nearest' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeIndex, listboxId, open]);
+
+  function nextEnabled(from: number, direction: 1 | -1) {
+    if (!options.length) return 0;
+    let next = from;
+    for (let index = 0; index < options.length; index += 1) {
+      next = (next + direction + options.length) % options.length;
+      if (!options[next].disabled) return next;
+    }
+    return from;
+  }
+
+  function choose(index: number) {
+    const option = options[index];
+    if (!option || option.disabled) return;
+    onChange(option.value);
+    closeMenu();
+    window.requestAnimationFrame(() => triggerRef.current?.focus());
+  }
+
+  function handleKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const direction = event.key === 'ArrowDown' ? 1 : -1;
+      if (!open) openMenu(direction === 1 ? selectedIndex : selectedIndex);
+      else setActiveIndex((current) => nextEnabled(current, direction));
+      return;
+    }
+    if (event.key === 'Home' && open) {
+      event.preventDefault();
+      setActiveIndex(options.findIndex((option) => !option.disabled));
+      return;
+    }
+    if (event.key === 'End' && open) {
+      event.preventDefault();
+      const reverseIndex = [...options].reverse().findIndex((option) => !option.disabled);
+      setActiveIndex(reverseIndex < 0 ? 0 : options.length - reverseIndex - 1);
+      return;
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      if (open) choose(activeIndex);
+      else openMenu();
+      return;
+    }
+    if (event.key === 'Escape' && open) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeMenu();
+      return;
+    }
+    if (event.key === 'Tab') {
+      closeMenu();
+      return;
+    }
+    if (event.key.length === 1 && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      const nextQuery = `${typeaheadRef.current}${event.key}`.toLocaleLowerCase();
+      typeaheadRef.current = nextQuery;
+      if (typeaheadTimerRef.current !== null) window.clearTimeout(typeaheadTimerRef.current);
+      typeaheadTimerRef.current = window.setTimeout(() => { typeaheadRef.current = ''; }, 650);
+      const match = options.findIndex((option) => !option.disabled && option.label.toLocaleLowerCase().startsWith(nextQuery));
+      if (match >= 0) {
+        event.preventDefault();
+        setActiveIndex(match);
+        if (!open) openMenu(match);
+      }
+    }
+  }
+
+  return (
+    <div className={clsx('admin-custom-select', className, open && 'is-open')}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="admin-custom-select-trigger"
+        role="combobox"
+        aria-label={ariaLabel}
+        aria-autocomplete="none"
+        aria-controls={open ? listboxId : undefined}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-activedescendant={open ? `${listboxId}-${activeIndex}` : undefined}
+        disabled={disabled}
+        onClick={() => open ? closeMenu() : openMenu()}
+        onKeyDown={handleKeyDown}
+      >
+        {icon ? <span className="admin-custom-select-icon">{icon}</span> : null}
+        <span>{selected?.label || value}</span>
+        <ChevronDown size={16} />
+      </button>
+      {open ? createPortal(
+        <div ref={menuRef} id={listboxId} className="admin-custom-select-menu" role="listbox" aria-label={ariaLabel} style={position}>
+          {options.map((option, index) => (
+            <button
+              type="button"
+              id={`${listboxId}-${index}`}
+              key={option.value}
+              role="option"
+              tabIndex={-1}
+              aria-selected={option.value === value}
+              disabled={option.disabled}
+              className={clsx(index === activeIndex && 'is-active', option.value === value && 'is-selected')}
+              onMouseEnter={() => setActiveIndex(index)}
+              onClick={() => choose(index)}
+            >
+              <span>{option.label}</span>
+              {option.value === value ? <Check size={15} /> : null}
+            </button>
+          ))}
+        </div>,
+        document.body,
+      ) : null}
+    </div>
+  );
+}
+
 function LoadingBlock({ label = 'Loading data' }: { label?: string }) {
   return (
     <div className="admin-loading-block">
@@ -241,17 +442,58 @@ function ToastStack({ toasts, dismiss }: { toasts: Toast[]; dismiss: (id: number
 }
 
 function Modal({ title, eyebrow, onClose, children, wide = false }: { title: string; eyebrow?: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
+  const dialogRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+
   useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusableSelector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusDialog = window.requestAnimationFrame(() => {
+      const firstControl = dialogRef.current?.querySelector<HTMLElement>(focusableSelector);
+      (firstControl || dialogRef.current)?.focus();
+    });
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape' && !event.defaultPrevented) {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== 'Tab' || event.defaultPrevented) return;
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const controls = Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector))
+        .filter((element) => element.getClientRects().length > 0);
+      if (!controls.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !dialog.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [onClose]);
+    return () => {
+      window.cancelAnimationFrame(focusDialog);
+      window.removeEventListener('keydown', handleKey);
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, []);
 
   return (
     <div className="admin-modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className={clsx('admin-modal', wide && 'is-wide')} role="dialog" aria-modal="true" aria-label={title}>
+      <section ref={dialogRef} className={clsx('admin-modal', wide && 'is-wide')} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1}>
         <header>
           <div>
             {eyebrow ? <span>{eyebrow}</span> : null}
@@ -501,8 +743,8 @@ function CreateUserModal({ onClose, onCreated, notify }: { onClose: () => void; 
             <span>Temporary password</span>
             <div className="admin-input-action"><input value={form.password} onChange={(event) => set('password', event.target.value)} minLength={10} placeholder="Minimum 10 characters" required /><button type="button" onClick={() => set('password', randomPassword())}><RefreshCw size={15} />Generate</button></div>
           </label>
-          <label><span>Package</span><select value={form.package_key} onChange={(event) => set('package_key', event.target.value)}>{PLAN_OPTIONS.map((plan) => <option key={plan.key} value={plan.key}>{plan.label}</option>)}</select></label>
-          <label><span>Account role</span><select value={form.role} onChange={(event) => set('role', event.target.value)}><option value="tuner">Tuner</option><option value="admin">Administrator</option></select></label>
+          <label><span>Package</span><CustomSelect ariaLabel="Package" value={form.package_key} onChange={(value) => set('package_key', value)} options={PLAN_SELECT_OPTIONS} /></label>
+          <label><span>Account role</span><CustomSelect ariaLabel="Account role" value={form.role} onChange={(value) => set('role', value)} options={ROLE_OPTIONS} /></label>
           <label><span>VAT number</span><input value={form.vat_number} onChange={(event) => set('vat_number', event.target.value)} placeholder="Optional" /></label>
           <label><span>Phone</span><input value={form.phone_number} onChange={(event) => set('phone_number', event.target.value)} placeholder="Optional" /></label>
           <label className="is-wide"><span>Country</span><input value={form.country} onChange={(event) => set('country', event.target.value)} placeholder="Country" /></label>
@@ -553,13 +795,77 @@ function ResetPasswordModal({ user, currentAdminId, onSelfReset, onClose, notify
   );
 }
 
+function UserProjectsSection({ userId }: { userId: string }) {
+  const [projects, setProjects] = useState<AdminPage<AdminUserProject>>({ ...EMPTY_PAGE });
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      setProjects(await listAdminUserProjects(userId, { page, page_size: 10 }));
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : 'Could not load this user’s projects.');
+    } finally {
+      setLoading(false);
+    }
+  }, [page, userId]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
+
+  const maxPage = Math.max(1, projects.pages || Math.ceil(projects.total / projects.page_size));
+
+  return (
+    <section className="admin-panel admin-table-panel admin-projects-section">
+      <header className="admin-panel-heading">
+        <div><span>Customer files</span><h2>Projects</h2></div>
+        <button type="button" className="admin-secondary-button" onClick={() => void load()} disabled={loading}>{loading ? <Loader2 className="admin-spin" size={15} /> : <RefreshCw size={15} />}Refresh</button>
+      </header>
+      <div className="admin-table-summary"><span>{projects.total} {projects.total === 1 ? 'project' : 'projects'}</span>{loading ? <Loader2 className="admin-spin" size={15} /> : null}</div>
+      {error ? <div className="admin-inline-error"><AlertTriangle size={15} />{error}<button type="button" onClick={() => void load()}>Retry</button></div> : null}
+      {!error && loading && !projects.items.length ? <LoadingBlock label="Loading projects" /> : null}
+      {!error && !loading && !projects.items.length ? <EmptyState icon={<FolderOpen size={22} />} title="No projects yet" body="Projects created by this user will appear here." /> : null}
+      {projects.items.length ? (
+        <div className="admin-table-scroll">
+          <table className="admin-data-table admin-projects-table">
+            <thead><tr><th>Project</th><th>Vehicle</th><th>ECU</th><th>Source file</th><th>Builds</th><th>Updated</th></tr></thead>
+            <tbody>
+              {projects.items.map((project) => (
+                <tr key={project.id}>
+                  <td><div className="admin-project-name"><span className="admin-purchase-icon"><FolderOpen size={16} /></span><strong>{project.name || 'Unnamed project'}</strong></div></td>
+                  <td><span className="admin-primary-cell">{project.vehicle_label || '—'}</span></td>
+                  <td><span className="admin-primary-cell">{project.ecu_label || '—'}</span></td>
+                  <td><span className="admin-project-filename">{project.source_filename || '—'}</span></td>
+                  <td><div className="admin-table-person"><strong>{project.build_count} {project.build_count === 1 ? 'build' : 'builds'}</strong><small>{project.last_build ? `${project.last_build.base_tune} · ${project.last_build.status.replace(/_/g, ' ')}` : 'No build yet'}</small></div></td>
+                  <td><span className="admin-primary-cell">{dateLabel(project.updated_at || project.created_at, true)}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {projects.items.length || projects.total ? (
+        <footer className="admin-pagination"><span>Page {page} of {maxPage}</span><div><button type="button" disabled={page <= 1 || loading} onClick={() => setPage((current) => current - 1)}><ChevronLeft size={16} />Previous</button><button type="button" disabled={page >= maxPage || loading} onClick={() => setPage((current) => current + 1)}>Next<ChevronRight size={16} /></button></div></footer>
+      ) : null}
+    </section>
+  );
+}
+
 function UserDetailPage({ userId, currentAdminId, onSelfReset, onBack, backLabel, notify }: { userId: string; currentAdminId: string; onSelfReset: () => void; onBack: () => void; backLabel: string; notify: (tone: Toast['tone'], message: string) => void }) {
   const [user, setUser] = useState<AdminUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
   const [error, setError] = useState('');
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [confirmStatus, setConfirmStatus] = useState(false);
+  const [profile, setProfile] = useState({ display_name: '', company_name: '', email: '', vat_number: '', phone_number: '', country: '', role: 'tuner' as 'tuner' | 'admin' });
+  const [pendingProfileChanges, setPendingProfileChanges] = useState<Partial<typeof profile> | null>(null);
   const [subscription, setSubscription] = useState({ package_key: 'free', plan_name: 'Apex Free', monthly_file_limit: 1, files_used_this_period: 0, period_ends_at: '', status: 'active' });
 
   const load = useCallback(async () => {
@@ -568,6 +874,15 @@ function UserDetailPage({ userId, currentAdminId, onSelfReset, onBack, backLabel
     try {
       const data = await getAdminUser(userId);
       setUser(data);
+      setProfile({
+        display_name: data.display_name || '',
+        company_name: data.company_name || '',
+        email: data.email,
+        vat_number: data.vat_number || '',
+        phone_number: data.phone_number || '',
+        country: data.country || '',
+        role: data.role === 'admin' ? 'admin' : 'tuner',
+      });
       const currentPlan = PLAN_OPTIONS.find((plan) => plan.key === planKey(data.subscription, data.selected_package)) || PLAN_OPTIONS[0];
       setSubscription({
         package_key: currentPlan.key,
@@ -589,6 +904,70 @@ function UserDetailPage({ userId, currentAdminId, onSelfReset, onBack, backLabel
     return () => window.clearTimeout(timer);
   }, [load]);
 
+  async function applyProfileChanges(changes: Partial<typeof profile>) {
+    if (!user) return;
+    setPendingProfileChanges(null);
+    setProfileSaving(true);
+    setError('');
+    try {
+      const invalidatesOwnSession = user.id === currentAdminId && (changes.email !== undefined || changes.role !== undefined);
+      const updated = await updateAdminUserProfile(user.id, changes);
+      setUser(updated);
+      setProfile({
+        display_name: updated.display_name || '',
+        company_name: updated.company_name || '',
+        email: updated.email,
+        vat_number: updated.vat_number || '',
+        phone_number: updated.phone_number || '',
+        country: updated.country || '',
+        role: updated.role === 'admin' ? 'admin' : 'tuner',
+      });
+      notify('success', 'Account details updated.');
+      if (invalidatesOwnSession) onSelfReset();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : 'Could not update account details.');
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
+  function saveProfile(event: FormEvent) {
+    event.preventDefault();
+    if (!user) return;
+    const currentProfile = {
+      display_name: user.display_name || '',
+      company_name: user.company_name || '',
+      email: user.email,
+      vat_number: user.vat_number || '',
+      phone_number: user.phone_number || '',
+      country: user.country || '',
+      role: user.role === 'admin' ? 'admin' as const : 'tuner' as const,
+    };
+    const normalizedProfile = {
+      display_name: profile.display_name.trim(),
+      company_name: profile.company_name.trim(),
+      email: profile.email.trim().toLowerCase(),
+      vat_number: profile.vat_number.trim(),
+      phone_number: profile.phone_number.trim(),
+      country: profile.country.trim(),
+      role: profile.role,
+    };
+    const changes: Partial<typeof profile> = {};
+    (Object.keys(normalizedProfile) as Array<keyof typeof profile>).forEach((key) => {
+      if (normalizedProfile[key] !== currentProfile[key]) Object.assign(changes, { [key]: normalizedProfile[key] });
+    });
+    if (!Object.keys(changes).length) {
+      setProfile(currentProfile);
+      notify('success', 'Account details are already up to date.');
+      return;
+    }
+    if (changes.email !== undefined || changes.role !== undefined) {
+      setPendingProfileChanges(changes);
+      return;
+    }
+    void applyProfileChanges(changes);
+  }
+
   async function saveSubscription(event: FormEvent) {
     event.preventDefault();
     if (!user) return;
@@ -596,8 +975,10 @@ function UserDetailPage({ userId, currentAdminId, onSelfReset, onBack, backLabel
     setError('');
     try {
       const updatedSubscription = await updateAdminUserSubscription(user.id, {
-        ...subscription,
         package_key: subscription.package_key as 'free' | 'lite' | 'pro',
+        plan_name: subscription.plan_name,
+        monthly_file_limit: subscription.monthly_file_limit,
+        status: subscription.status,
         period_ends_at: subscription.period_ends_at ? new Date(`${subscription.period_ends_at}T23:59:59Z`).toISOString() : undefined,
       });
       const updated = { ...user, selected_package: subscription.package_key, subscription: updatedSubscription };
@@ -647,30 +1028,36 @@ function UserDetailPage({ userId, currentAdminId, onSelfReset, onBack, backLabel
             </section>
 
             <div className="admin-user-detail-columns">
-              <section className="admin-user-section">
-                <header><div><span>Account</span><h3>Contact details</h3></div><span className="admin-readonly-label"><Eye size={13} />Read only</span></header>
-                <div className="admin-detail-grid">
-                  <div><span>Name</span><strong>{user.display_name || '—'}</strong></div>
-                  <div><span>Company</span><strong>{user.company_name || '—'}</strong></div>
-                  <div className="is-wide"><span>Email</span><strong>{user.email}</strong></div>
-                  <div><span>VAT number</span><strong>{user.vat_number || '—'}</strong></div>
-                  <div><span>Phone</span><strong>{user.phone_number || '—'}</strong></div>
-                  <div><span>Country</span><strong>{user.country || '—'}</strong></div>
-                  <div><span>Role</span><strong>{user.role === 'admin' ? 'Administrator' : 'Tuner'}</strong></div>
+              <form className="admin-user-section" onSubmit={saveProfile}>
+                <header><div><span>Account</span><h3>Contact details</h3></div><button className="admin-text-button" type="submit" disabled={profileSaving}>{profileSaving ? <Loader2 className="admin-spin" size={14} /> : <Check size={14} />}Save</button></header>
+                <div className="admin-form-grid compact">
+                  <label><span>Name</span><input value={profile.display_name} onChange={(event) => setProfile({ ...profile, display_name: event.target.value })} placeholder="Full name" /></label>
+                  <label><span>Company</span><input value={profile.company_name} onChange={(event) => setProfile({ ...profile, company_name: event.target.value })} placeholder="Company name" /></label>
+                  <label className="is-wide"><span>Email</span><input type="email" value={profile.email} onChange={(event) => setProfile({ ...profile, email: event.target.value })} placeholder="name@company.com" required /></label>
+                  <label><span>VAT number</span><input value={profile.vat_number} onChange={(event) => setProfile({ ...profile, vat_number: event.target.value })} placeholder="VAT number" /></label>
+                  <label><span>Phone</span><input type="tel" value={profile.phone_number} onChange={(event) => setProfile({ ...profile, phone_number: event.target.value })} placeholder="Phone number" /></label>
+                  <label><span>Country</span><input value={profile.country} onChange={(event) => setProfile({ ...profile, country: event.target.value })} placeholder="Country" /></label>
+                  <label><span>Role</span><CustomSelect ariaLabel="Account role" value={profile.role} onChange={(value) => setProfile({ ...profile, role: value === 'admin' ? 'admin' : 'tuner' })} options={ROLE_OPTIONS} /></label>
                 </div>
-              </section>
+              </form>
 
               <form className="admin-user-section" onSubmit={saveSubscription}>
                 <header><div><span>Billing</span><h3>Subscription</h3></div><button className="admin-text-button" type="submit" disabled={saving}>{saving ? <Loader2 className="admin-spin" size={14} /> : <Check size={14} />}Save</button></header>
                 <div className="admin-form-grid compact">
-                  <label><span>Package</span><select value={subscription.package_key} onChange={(event) => { const selected = PLAN_OPTIONS.find((plan) => plan.key === event.target.value) || PLAN_OPTIONS[0]; setSubscription({ ...subscription, package_key: selected.key, plan_name: selected.label, monthly_file_limit: selected.limit }); }}>{PLAN_OPTIONS.map((plan) => <option key={plan.key} value={plan.key}>{plan.label}</option>)}</select></label>
-                  <label><span>Status</span><select value={subscription.status} onChange={(event) => setSubscription({ ...subscription, status: event.target.value })}><option value="active">Active</option><option value="inactive">Inactive</option><option value="past_due">Past due</option><option value="cancelled">Cancelled</option></select></label>
+                  <label><span>Package</span><CustomSelect ariaLabel="Subscription package" value={subscription.package_key} onChange={(value) => { const selected = PLAN_OPTIONS.find((plan) => plan.key === value) || PLAN_OPTIONS[0]; setSubscription({ ...subscription, package_key: selected.key, plan_name: selected.label, monthly_file_limit: selected.limit }); }} options={PLAN_SELECT_OPTIONS} /></label>
+                  <label><span>Status</span><CustomSelect ariaLabel="Subscription status" value={subscription.status} onChange={(value) => setSubscription({ ...subscription, status: value })} options={SUBSCRIPTION_STATUS_OPTIONS} /></label>
                   <label><span>Monthly limit</span><input type="number" min={0} value={subscription.monthly_file_limit} onChange={(event) => setSubscription({ ...subscription, monthly_file_limit: Number(event.target.value) })} /></label>
-                  <label><span>Files used</span><input type="number" min={0} value={subscription.files_used_this_period} onChange={(event) => setSubscription({ ...subscription, files_used_this_period: Number(event.target.value) })} /></label>
                   <label className="is-wide"><span>Period ends</span><input type="date" value={subscription.period_ends_at} onChange={(event) => setSubscription({ ...subscription, period_ends_at: event.target.value })} /></label>
+                  <div className="admin-usage-readonly is-wide">
+                    <div><span>Files used</span><strong>{subscription.files_used_this_period} / {subscription.monthly_file_limit >= 9999 ? '∞' : subscription.monthly_file_limit}</strong></div>
+                    <span className="admin-progress"><i style={{ width: `${Math.min(100, subscription.monthly_file_limit ? (subscription.files_used_this_period / subscription.monthly_file_limit) * 100 : 0)}%` }} /></span>
+                    <small>Usage is calculated automatically from completed file activity and cannot be edited manually.</small>
+                  </div>
                 </div>
               </form>
             </div>
+
+            <UserProjectsSection userId={user.id} />
 
             {error ? <div className="admin-form-error"><AlertTriangle size={15} />{error}</div> : null}
 
@@ -679,6 +1066,19 @@ function UserDetailPage({ userId, currentAdminId, onSelfReset, onBack, backLabel
               <button type="button" className={clsx('admin-danger-button', !user.is_active && 'is-activate')} onClick={() => setConfirmStatus(true)}>{user.is_active ? <UserX size={15} /> : <UserCheck size={15} />}{user.is_active ? 'Disable account' : 'Activate account'}</button>
             </section>
         </div>
+      ) : null}
+      {pendingProfileChanges && user ? (
+        <Modal title="Confirm account change" eyebrow={user.email} onClose={() => setPendingProfileChanges(null)}>
+          <div className="admin-confirm-body">
+            <span className="admin-confirm-icon is-positive"><ShieldCheck size={23} /></span>
+            <p>Changing an email address or account role immediately signs this user out on every device. Administrator access gives full control of Apex Files.</p>
+            <div className="admin-identity-change-list">
+              {pendingProfileChanges.email !== undefined ? <div><strong>Email</strong><span>{user.email} → {pendingProfileChanges.email}</span></div> : null}
+              {pendingProfileChanges.role !== undefined ? <div><strong>Role</strong><span>{user.role === 'admin' ? 'Administrator' : 'Tuner'} → {pendingProfileChanges.role === 'admin' ? 'Administrator' : 'Tuner'}</span></div> : null}
+            </div>
+            <footer className="admin-modal-actions"><button type="button" className="admin-secondary-button" onClick={() => setPendingProfileChanges(null)}>Cancel</button><button type="button" className="admin-primary-button" disabled={profileSaving} onClick={() => void applyProfileChanges(pendingProfileChanges)}>{profileSaving ? <Loader2 className="admin-spin" size={16} /> : <ShieldCheck size={16} />}Confirm and save</button></footer>
+          </div>
+        </Modal>
       ) : null}
       {passwordOpen && user ? <ResetPasswordModal user={user} currentAdminId={currentAdminId} onSelfReset={onSelfReset} onClose={() => setPasswordOpen(false)} notify={notify} /> : null}
       {confirmStatus && user ? (
@@ -734,8 +1134,8 @@ function UsersPage({ notify, onOpenUser, subscriptionsOnly = false }: { notify: 
         <header className="admin-table-toolbar">
           <div className="admin-search-field"><Search size={17} /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder={subscriptionsOnly ? 'Search subscriptions…' : 'Search name, email or company…'} />{search ? <button type="button" onClick={() => { setSearch(''); setPage(1); }}><X size={14} /></button> : null}</div>
           <div className="admin-toolbar-filters">
-            <label><SlidersHorizontal size={15} /><select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="all">All statuses</option><option value="active">Active</option><option value="disabled">Disabled</option></select></label>
-            <label><CreditCard size={15} /><select value={plan} onChange={(event) => { setPlan(event.target.value); setPage(1); }}><option value="all">All packages</option>{PLAN_OPTIONS.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label>
+            <CustomSelect className="admin-filter-select" ariaLabel="Filter account status" icon={<SlidersHorizontal size={15} />} value={status} onChange={(value) => { setStatus(value); setPage(1); }} options={ACCOUNT_STATUS_OPTIONS} />
+            <CustomSelect className="admin-filter-select" ariaLabel="Filter package" icon={<CreditCard size={15} />} value={plan} onChange={(value) => { setPlan(value); setPage(1); }} options={[{ value: 'all', label: 'All packages' }, ...PLAN_SELECT_OPTIONS]} />
             <button type="button" className="admin-icon-button" onClick={() => void load()} title="Refresh"><RefreshCw size={17} /></button>
             {!subscriptionsOnly ? <button type="button" className="admin-primary-button" onClick={() => setCreateOpen(true)}><Plus size={16} />Create account</button> : null}
           </div>
@@ -829,8 +1229,8 @@ function SubscriptionsPage({ onOpenUser }: { onOpenUser: (userId: string) => voi
         <header className="admin-table-toolbar">
           <div className="admin-search-field"><Search size={17} /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search subscriptions by customer…" />{search ? <button type="button" onClick={() => { setSearch(''); setPage(1); }}><X size={14} /></button> : null}</div>
           <div className="admin-toolbar-filters">
-            <label><SlidersHorizontal size={15} /><select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="all">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="past_due">Past due</option><option value="cancelled">Cancelled</option></select></label>
-            <label><CreditCard size={15} /><select value={plan} onChange={(event) => { setPlan(event.target.value); setPage(1); }}><option value="all">All packages</option>{PLAN_OPTIONS.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label>
+            <CustomSelect className="admin-filter-select" ariaLabel="Filter subscription status" icon={<SlidersHorizontal size={15} />} value={status} onChange={(value) => { setStatus(value); setPage(1); }} options={SUBSCRIPTION_FILTER_OPTIONS} />
+            <CustomSelect className="admin-filter-select" ariaLabel="Filter subscription package" icon={<CreditCard size={15} />} value={plan} onChange={(value) => { setPlan(value); setPage(1); }} options={[{ value: 'all', label: 'All packages' }, ...PLAN_SELECT_OPTIONS]} />
             <button type="button" className="admin-icon-button" onClick={() => void load()} title="Refresh"><RefreshCw size={17} /></button>
           </div>
         </header>
@@ -923,8 +1323,8 @@ function RecordPurchaseModal({ onClose, onCreated, notify }: { onClose: () => vo
           <label className="is-wide admin-user-picker"><span>Customer</span><input value={userSearch} onChange={(event) => { setUserSearch(event.target.value); setUserId(''); setUsers([]); }} placeholder="Search user by name, email or company" required={!userId} />{users.length && !userId ? <div>{users.map((user) => <button type="button" key={user.id} onClick={() => { setUserId(user.id); setUserSearch(`${user.display_name || user.email} · ${user.email}`); setUsers([]); }}><UserCell user={user} /></button>)}</div> : null}</label>
           <label className="is-wide"><span>Description</span><input value={description} onChange={(event) => setDescription(event.target.value)} required /></label>
           <label><span>Amount</span><input type="text" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" required /></label>
-          <label><span>Currency</span><select value={currency} onChange={(event) => setCurrency(event.target.value)}><option value="USD">USD</option><option value="EUR">EUR</option><option value="SEK">SEK</option><option value="GBP">GBP</option></select></label>
-          <label className="is-wide"><span>Payment status</span><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="paid">Paid</option><option value="pending">Pending</option><option value="refunded">Refunded</option><option value="void">Void</option></select></label>
+          <label><span>Currency</span><CustomSelect ariaLabel="Currency" value={currency} onChange={setCurrency} options={CURRENCY_OPTIONS} /></label>
+          <label className="is-wide"><span>Payment status</span><CustomSelect ariaLabel="Payment status" value={status} onChange={setStatus} options={PURCHASE_STATUS_OPTIONS} /></label>
         </div>
         {error ? <div className="admin-form-error"><AlertTriangle size={15} />{error}</div> : null}
         <footer className="admin-modal-actions"><button type="button" className="admin-secondary-button" onClick={onClose}>Cancel</button><button type="submit" className="admin-primary-button" disabled={busy || !userId}>{busy ? <Loader2 className="admin-spin" size={16} /> : <FileText size={16} />}Record purchase</button></footer>
@@ -993,7 +1393,7 @@ function PurchasesPage({ notify }: { notify: (tone: Toast['tone'], message: stri
       <section className="admin-panel admin-table-panel">
         <header className="admin-table-toolbar">
           <div className="admin-search-field"><Search size={17} /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search record, customer or description…" />{search ? <button type="button" onClick={() => { setSearch(''); setPage(1); }}><X size={14} /></button> : null}</div>
-          <div className="admin-toolbar-filters"><label><SlidersHorizontal size={15} /><select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="all">All statuses</option><option value="paid">Paid</option><option value="pending">Pending</option><option value="refunded">Refunded</option><option value="void">Void</option></select></label><button type="button" className="admin-icon-button" onClick={() => void load()}><RefreshCw size={17} /></button><button type="button" className="admin-primary-button" onClick={() => setRecordOpen(true)}><Plus size={16} />Record purchase</button></div>
+          <div className="admin-toolbar-filters"><CustomSelect className="admin-filter-select" ariaLabel="Filter payment status" icon={<SlidersHorizontal size={15} />} value={status} onChange={(value) => { setStatus(value); setPage(1); }} options={PURCHASE_FILTER_OPTIONS} /><button type="button" className="admin-icon-button" onClick={() => void load()}><RefreshCw size={17} /></button><button type="button" className="admin-primary-button" onClick={() => setRecordOpen(true)}><Plus size={16} />Record purchase</button></div>
         </header>
         <div className="admin-table-summary"><span>{purchases.total} ledger entries</span>{loading ? <Loader2 className="admin-spin" size={15} /> : null}</div>
         {error ? <div className="admin-inline-error"><AlertTriangle size={15} />{error}<button type="button" onClick={() => void load()}>Retry</button></div> : null}

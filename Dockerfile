@@ -20,6 +20,15 @@ RUN python3 -m venv /opt/apex-venv \
 ENV PATH="/opt/apex-venv/bin:${PATH}"
 
 COPY . .
+
+# Vite reads public configuration while the image is built. Railway exposes
+# service variables as Docker build arguments, so declare them explicitly.
+ARG VITE_APP_MODE=""
+ARG VITE_API_BASE_URL=""
+ARG VITE_CUSTOMER_APP_URL=""
+ENV VITE_APP_MODE=${VITE_APP_MODE}
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+ENV VITE_CUSTOMER_APP_URL=${VITE_CUSTOMER_APP_URL}
 RUN npm run build
 
 ENV NODE_ENV=production

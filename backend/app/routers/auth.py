@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -27,11 +27,14 @@ def _default_period_end():
 
 @router.post("/register", response_model=AuthOut)
 def register(payload: AuthRegisterIn, db: Session = Depends(get_db)) -> AuthOut:
-    existing = db.scalar(select(User).where(User.email == payload.email.lower()))
+    existing = db.scalar(select(User).where(func.lower(User.email) == payload.email.lower()))
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An account already exists for this email")
 
-    package_key = payload.package_key if payload.package_key in PACKAGE_PLANS else "free"
+    # Paid plans may only be assigned by a trusted billing/admin flow. Public
+    # registration always starts on the free plan, even if an older client sends
+    # a paid package key.
+    package_key = "free"
     plan_name, monthly_file_limit = PACKAGE_PLANS[package_key]
     user = User(
         email=payload.email.lower(),
@@ -55,7 +58,10 @@ def register(payload: AuthRegisterIn, db: Session = Depends(get_db)) -> AuthOut:
     )
     db.commit()
     db.refresh(user)
-    return AuthOut(token=create_token(user.id), user=UserOut.model_validate(user))
+    return AuthOut(
+        token=create_token(user.id, session_version=user.session_version),
+        user=UserOut.model_validate(user),
+    )
 
 
 @router.post("/login", response_model=AuthOut)
@@ -64,7 +70,12 @@ def login(payload: AuthLoginIn, db: Session = Depends(get_db)) -> AuthOut:
     user = db.scalar(select(User).where(User.email == account))
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid account or password")
-    return AuthOut(token=create_token(user.id), user=UserOut.model_validate(user))
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account has been disabled")
+    return AuthOut(
+        token=create_token(user.id, session_version=user.session_version),
+        user=UserOut.model_validate(user),
+    )
 
 
 @router.get("/me", response_model=UserOut)

@@ -7,14 +7,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .database import SessionLocal, init_db
-from .routers import auth, builds, integrations, projects, subscription
+from .routers import admin, auth, builds, integrations, projects, subscription
 from .services.bootstrap import ensure_temp_admin_account
 from .settings import get_settings
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Apex Files API", version="0.1.0")
+is_production = settings.app_env.strip().lower() == "production"
+app = FastAPI(
+    title="Apex Files API",
+    version="0.1.0",
+    docs_url=None if is_production else "/docs",
+    redoc_url=None if is_production else "/redoc",
+    openapi_url=None if is_production else "/openapi.json",
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -23,6 +30,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def protect_admin_responses(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/api/admin"):
+        response.headers["Cache-Control"] = "private, no-store"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 @app.on_event("startup")
@@ -63,3 +80,4 @@ app.include_router(builds.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
 app.include_router(subscription.router, prefix="/api")
 app.include_router(integrations.router, prefix="/api")
+app.include_router(admin.router, prefix="/api")

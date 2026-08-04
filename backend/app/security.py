@@ -37,13 +37,21 @@ def verify_password(password: str, password_hash: str) -> bool:
     return hmac.compare_digest(actual, expected)
 
 
-def create_token(subject: str, expires_delta: timedelta | None = None) -> str:
+def create_token(
+    subject: str,
+    expires_delta: timedelta | None = None,
+    *,
+    session_version: int = 0,
+    audience: str = "app",
+) -> str:
     settings = get_settings()
     now = datetime.now(timezone.utc)
     payload: dict[str, Any] = {
         "sub": subject,
         "iat": int(now.timestamp()),
         "exp": int((now + (expires_delta or timedelta(days=14))).timestamp()),
+        "sv": int(session_version),
+        "aud": audience,
     }
     body = _b64url(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
     signature = hmac.new(settings.app_secret.encode("utf-8"), body.encode("ascii"), hashlib.sha256).digest()

@@ -7214,7 +7214,8 @@ textarea:focus {
   gap: 8px;
 }
 
-.register-package-choice button {
+.register-package-choice > button,
+.register-package-choice > div {
   display: grid;
   gap: 4px;
   min-height: 54px;
@@ -7226,9 +7227,18 @@ textarea:focus {
   text-align: left;
 }
 
-.register-package-choice button.selected {
+.register-package-choice > button.selected,
+.register-package-choice > div.selected {
   border-color: rgba(255, 138, 0, 0.72);
   background: rgba(255, 138, 0, 0.1);
+}
+
+.register-package-choice > p {
+  margin: 2px 0 0;
+  color: rgba(148, 163, 184, 0.88);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.45;
 }
 
 .register-package-choice span,

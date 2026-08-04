@@ -1332,7 +1332,6 @@ function LoginScreen({
   const [phoneNumber, setPhoneNumber] = useState('');
   const [country, setCountry] = useState('');
   const [registerStep, setRegisterStep] = useState(0);
-  const [selectedPackage, setSelectedPackage] = useState<PackageKey>('free');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -1354,14 +1353,13 @@ function LoginScreen({
       setPhoneNumber('');
       setCountry('');
       setRegisterStep(0);
-      setSelectedPackage('free');
     }
   }
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     if (mode === 'forgot') {
-      setError('Password reset is handled by Apex support for now. Use admin / admin for the temporary admin account.');
+      setError('Password reset is handled by Apex support. Contact support to verify your account and request a reset.');
       return;
     }
     if (mode === 'register' && registerStep < 2) {
@@ -1383,7 +1381,7 @@ function LoginScreen({
               vat_number: vatNumber,
               phone_number: phoneNumber,
               country,
-              package_key: selectedPackage,
+              package_key: 'free',
             });
       onAuthed(user);
     } catch (reason) {
@@ -1603,24 +1601,18 @@ function LoginScreen({
           <div className="login-card">
             {mode === 'register' && registerStep === 2 ? (
               <div className="register-package-choice">
-                {PACKAGE_OPTIONS.map((option) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    className={clsx(selectedPackage === option.key && 'selected')}
-                    onClick={() => setSelectedPackage(option.key)}
-                  >
-                    <span>{option.name}</span>
-                    <strong>{option.price ? `$${option.price} / month` : '$0 / month'}</strong>
-                  </button>
-                ))}
+                <div className="selected">
+                  <span>Apex Free</span>
+                  <strong>$0 / month</strong>
+                </div>
+                <p>Your account starts on Apex Free. Paid packages are activated only after your subscription is confirmed.</p>
               </div>
             ) : null}
 
             {mode !== 'register' || registerStep === 0 ? (
               <label>
                 <span>{mode === 'register' ? 'Email' : 'Account'}</span>
-                <input value={email} onChange={(event) => setEmail(event.target.value)} type="text" autoComplete="username" placeholder={mode === 'register' ? 'name@company.com' : 'admin'} />
+                <input value={email} onChange={(event) => setEmail(event.target.value)} type="text" autoComplete="username" placeholder="name@company.com" />
               </label>
             ) : null}
 
@@ -1665,7 +1657,7 @@ function LoginScreen({
                   onChange={(event) => setPassword(event.target.value)}
                   type="password"
                   autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                  placeholder={mode === 'login' ? 'admin' : 'Minimum 8 characters'}
+                  placeholder={mode === 'login' ? 'Your password' : 'Minimum 8 characters'}
                 />
               </label>
             ) : null}
@@ -1673,7 +1665,7 @@ function LoginScreen({
             {mode === 'forgot' ? (
               <div className="forgot-note">
                 <Info size={16} />
-                <span>Enter your account and contact Apex support for a reset. Temporary admin access is admin / admin.</span>
+                <span>Enter your account email and contact Apex support for a verified password reset.</span>
               </div>
             ) : null}
           </div>

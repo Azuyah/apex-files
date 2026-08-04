@@ -41,6 +41,7 @@ def ensure_user_profile_columns() -> None:
         "phone_number": "VARCHAR(80) DEFAULT ''",
         "country": "VARCHAR(120) DEFAULT ''",
         "selected_package": "VARCHAR(40) DEFAULT 'free'",
+        "session_version": "INTEGER NOT NULL DEFAULT 0",
     }
     missing = [(name, ddl) for name, ddl in columns.items() if name not in existing]
     if not missing:

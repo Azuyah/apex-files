@@ -17,9 +17,10 @@ class Settings(BaseSettings):
     revtech_api_base_url: str = "https://files.revtechfiles.com/api/proxy"
     revtech_service_token: str = ""
     revtech_timeout_seconds: int = 600
-    temp_admin_enabled: bool = True
-    temp_admin_username: str = "admin"
-    temp_admin_password: str = "admin"
+    temp_admin_enabled: bool = False
+    temp_admin_username: str = ""
+    temp_admin_password: str = ""
+    admin_allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     model_config = SettingsConfigDict(
         env_file=("backend/.env", ".env"),
@@ -39,7 +40,19 @@ class Settings(BaseSettings):
 
     @property
     def allowed_origins(self) -> list[str]:
-        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        origins = [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        for origin in self.admin_origins:
+            if origin not in origins:
+                origins.append(origin)
+        return origins
+
+    @property
+    def admin_origins(self) -> list[str]:
+        return [
+            origin.strip().rstrip("/")
+            for origin in self.admin_allowed_origins.split(",")
+            if origin.strip() and origin.strip().lower() != "null"
+        ]
 
     @property
     def revtech_enabled(self) -> bool:

@@ -3,9 +3,7 @@ import type { FormEvent, ReactNode } from 'react';
 import {
   Activity,
   AlertTriangle,
-  ArrowDownRight,
   ArrowRight,
-  ArrowUpRight,
   BarChart3,
   Bell,
   Check,
@@ -75,8 +73,6 @@ const PLAN_OPTIONS = [
   { key: 'lite', label: 'Apex Lite', limit: 20 },
   { key: 'pro', label: 'Apex Pro', limit: 9999 },
 ] as const;
-const CUSTOMER_APP_URL = String(import.meta.env.VITE_CUSTOMER_APP_URL || 'https://apex-files-frontend-production.up.railway.app');
-
 function money(cents: number | null | undefined, currency = 'USD') {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -290,7 +286,6 @@ function AdminLogin({ onAuthed }: { onAuthed: (user: AdminSessionUser) => void }
             Sign in to admin
           </button>
         </form>
-        <a href={CUSTOMER_APP_URL}>Return to Apex Files</a>
       </section>
     </main>
   );
@@ -478,7 +473,7 @@ function CreateUserModal({ onClose, onCreated, notify }: { onClose: () => void; 
           <label className="is-wide"><span>Email</span><input type="email" value={form.email} onChange={(event) => set('email', event.target.value)} placeholder="name@company.com" required /></label>
           <label className="is-wide">
             <span>Temporary password</span>
-                <div className="admin-input-action"><input value={form.password} onChange={(event) => set('password', event.target.value)} minLength={12} required /><button type="button" onClick={() => set('password', randomPassword())}><RefreshCw size={15} />Generate</button></div>
+            <div className="admin-input-action"><input value={form.password} onChange={(event) => set('password', event.target.value)} minLength={10} placeholder="Minimum 10 characters" required /><button type="button" onClick={() => set('password', randomPassword())}><RefreshCw size={15} />Generate</button></div>
           </label>
           <label><span>Package</span><select value={form.package_key} onChange={(event) => set('package_key', event.target.value)}>{PLAN_OPTIONS.map((plan) => <option key={plan.key} value={plan.key}>{plan.label}</option>)}</select></label>
           <label><span>Account role</span><select value={form.role} onChange={(event) => set('role', event.target.value)}><option value="tuner">Tuner</option><option value="admin">Administrator</option></select></label>
@@ -523,7 +518,7 @@ function ResetPasswordModal({ user, currentAdminId, onSelfReset, onClose, notify
     <Modal title="Reset password" eyebrow={user.email} onClose={onClose}>
       <form className="admin-modal-form" onSubmit={submit}>
         <p className="admin-modal-copy">Set a temporary password and share it securely with the account owner.</p>
-        <label className="admin-single-field"><span>Temporary password</span><div className="admin-input-action"><input value={password} onChange={(event) => { setPassword(event.target.value); setSaved(false); }} minLength={12} required /><button type="button" onClick={() => setPassword(randomPassword())}><RefreshCw size={15} />Generate</button></div></label>
+        <label className="admin-single-field"><span>Temporary password</span><div className="admin-input-action"><input value={password} onChange={(event) => { setPassword(event.target.value); setSaved(false); }} minLength={10} placeholder="Minimum 10 characters" required /><button type="button" onClick={() => setPassword(randomPassword())}><RefreshCw size={15} />Generate</button></div></label>
         {saved ? <button type="button" className="admin-copy-result" onClick={() => void navigator.clipboard.writeText(password)}><Copy size={15} />Copy temporary password</button> : null}
         {error ? <div className="admin-form-error"><AlertTriangle size={15} />{error}</div> : null}
         <footer className="admin-modal-actions"><button type="button" className="admin-secondary-button" onClick={onClose}>{saved ? 'Done' : 'Cancel'}</button>{!saved ? <button type="submit" className="admin-primary-button" disabled={busy}>{busy ? <Loader2 className="admin-spin" size={16} /> : <KeyRound size={16} />}Reset password</button> : null}</footer>
@@ -1090,7 +1085,6 @@ export default function AdminApp() {
         </nav>
         <div className="admin-sidebar-foot">
           <div className="admin-system-status"><span><i />Systems operational</span><small>Administration portal</small></div>
-          <a href={CUSTOMER_APP_URL}><ArrowDownRight size={16} /><span>Open customer app</span></a>
         </div>
       </aside>
       {sidebarOpen ? <button type="button" className="admin-sidebar-scrim" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} /> : null}
@@ -1103,7 +1097,7 @@ export default function AdminApp() {
             <button type="button" className="admin-icon-button" aria-label="Notifications"><Bell size={18} /><i /></button>
             <div className="admin-account-menu" ref={accountRef}>
               <button type="button" onClick={() => setAccountOpen((current) => !current)}><span className="admin-avatar">{(user.display_name || user.email)[0]?.toUpperCase()}</span><span><strong>{user.display_name || 'Administrator'}</strong><small>{user.email}</small></span><ChevronDown size={15} /></button>
-              {accountOpen ? <div><span>Signed in as administrator</span><a href={CUSTOMER_APP_URL}><ArrowUpRight size={15} />Customer app</a><button type="button" onClick={logout}><LogOut size={15} />Sign out</button></div> : null}
+              {accountOpen ? <div><span>Signed in as administrator</span><button type="button" onClick={logout}><LogOut size={15} />Sign out</button></div> : null}
             </div>
           </div>
         </header>

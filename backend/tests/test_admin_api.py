@@ -212,7 +212,7 @@ class AdminApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         temporary_password = response.json()["temporary_password"]
-        self.assertGreaterEqual(len(temporary_password), 12)
+        self.assertGreaterEqual(len(temporary_password), 10)
         self.assertEqual(
             self.client.get(
                 "/api/auth/me",

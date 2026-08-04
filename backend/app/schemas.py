@@ -8,7 +8,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 class AuthRegisterIn(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8)
+    password: str = Field(min_length=10)
     display_name: str = ""
     company_name: str = ""
     vat_number: str = ""

@@ -203,17 +203,6 @@
   box-shadow: 0 0 0 3px rgba(255,138,0,.09);
 }
 
-.admin-login-card > a {
-  display: block;
-  margin-top: 25px;
-  color: #778291;
-  font-size: 12px;
-  text-align: center;
-  text-decoration: none;
-}
-
-.admin-login-card > a:hover { color: #d9e0e8; }
-
 .admin-primary-button,
 .admin-secondary-button,
 .admin-danger-button,
@@ -373,19 +362,6 @@
 .admin-page-heading-actions > span i { width: 6px; height: 6px; border-radius: 50%; background: #34d399; box-shadow: 0 0 7px rgba(52,211,153,.55); }
 .admin-system-status small { color: #5f6976; font-size: 9px; }
 
-.admin-sidebar-foot > a {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  border-radius: 7px;
-  padding: 9px 10px;
-  color: #7e8996;
-  font-size: 11px;
-  font-weight: 700;
-  text-decoration: none;
-}
-.admin-sidebar-foot > a:hover { color: #e2e7ec; background: rgba(255,255,255,.04); }
-
 .admin-main-shell {
   width: calc(100% - 248px);
   min-width: 0;
@@ -464,9 +440,7 @@
 }
 
 .admin-account-menu > div > span { border-bottom: 1px solid var(--admin-line); padding: 8px 9px 11px; color: #66717e; font-size: 9px; }
-.admin-account-menu > div a,
 .admin-account-menu > div button { display: flex; align-items: center; gap: 8px; border: 0; border-radius: 6px; padding: 9px; color: #aab3be; background: none; font-size: 11px; text-align: left; text-decoration: none; }
-.admin-account-menu > div a:hover,
 .admin-account-menu > div button:hover { color: #eef2f6; background: rgba(255,255,255,.05); }
 
 .admin-workspace {

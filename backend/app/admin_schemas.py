@@ -161,7 +161,7 @@ class AdminAuditEventListOut(BaseModel):
 
 class AdminUserCreateIn(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8, max_length=256)
+    password: str = Field(min_length=10, max_length=256)
     display_name: str = Field(default="", max_length=160)
     company_name: str = Field(default="", max_length=180)
     vat_number: str = Field(default="", max_length=80)
@@ -186,7 +186,7 @@ class AdminUserStatusIn(BaseModel):
 
 
 class AdminPasswordResetIn(BaseModel):
-    temporary_password: str | None = Field(default=None, min_length=12, max_length=256)
+    temporary_password: str | None = Field(default=None, min_length=10, max_length=256)
 
     @field_validator("temporary_password")
     @classmethod
@@ -194,8 +194,8 @@ class AdminPasswordResetIn(BaseModel):
         if value is None:
             return None
         cleaned = value.strip()
-        if len(cleaned) < 12:
-            raise ValueError("temporary_password must contain at least 12 non-whitespace characters")
+        if len(cleaned) < 10:
+            raise ValueError("temporary_password must contain at least 10 non-whitespace characters")
         return cleaned
 
 

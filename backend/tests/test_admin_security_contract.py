@@ -321,6 +321,58 @@ class AdminSecurityContractTests(unittest.TestCase):
                     self.assertEqual(subscription.plan_name, "Apex Free")
                     self.assertEqual(subscription.monthly_file_limit, 1)
 
+    def test_password_minimum_is_ten_across_registration_and_admin_flows(self) -> None:
+        too_short_registration = self.client.post(
+            "/api/auth/register",
+            json={"email": "short-public@example.com", "password": "123456789"},
+        )
+        self.assertEqual(too_short_registration.status_code, 422)
+
+        registration = self.client.post(
+            "/api/auth/register",
+            json={"email": "ten-public@example.com", "password": "1234567890"},
+        )
+        self.assertEqual(registration.status_code, 200)
+
+        too_short_admin_create = self.client.post(
+            "/api/admin/users",
+            headers=self.admin_headers,
+            json={"email": "short-admin-create@example.com", "password": "123456789"},
+        )
+        self.assertEqual(too_short_admin_create.status_code, 422)
+
+        admin_create = self.client.post(
+            "/api/admin/users",
+            headers=self.admin_headers,
+            json={"email": "ten-admin-create@example.com", "password": "1234567890"},
+        )
+        self.assertEqual(admin_create.status_code, 201)
+
+        too_short_reset = self.client.post(
+            f"/api/admin/users/{self.customer.id}/password-reset",
+            headers=self.admin_headers,
+            json={"temporary_password": "123456789"},
+        )
+        self.assertEqual(too_short_reset.status_code, 422)
+
+        reset = self.client.post(
+            f"/api/admin/users/{self.customer.id}/password-reset",
+            headers=self.admin_headers,
+            json={"temporary_password": "1234567890"},
+        )
+        self.assertEqual(reset.status_code, 200)
+        self.assertEqual(reset.json()["temporary_password"], "1234567890")
+
+        with self.Session() as db:
+            public_user = db.scalar(select(User).where(User.email == "ten-public@example.com"))
+            admin_created_user = db.scalar(
+                select(User).where(User.email == "ten-admin-create@example.com")
+            )
+            reset_user = db.get(User, self.customer.id)
+            self.assertTrue(verify_password("1234567890", public_user.password_hash))
+            self.assertTrue(verify_password("1234567890", admin_created_user.password_hash))
+            self.assertTrue(verify_password("1234567890", reset_user.password_hash))
+
     def test_bootstrap_is_disabled_by_default_and_strictly_create_only(self) -> None:
         with self.Session() as db:
             disabled = SimpleNamespace(

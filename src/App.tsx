@@ -1393,7 +1393,7 @@ function LoginScreen({
 
   const registerStepReady =
     registerStep === 0
-      ? Boolean(email && password.length >= 8)
+      ? Boolean(email && password.length >= 10)
       : registerStep === 1
         ? Boolean(displayName.trim() && companyName.trim() && vatNumber.trim() && country.trim())
         : true;
@@ -1657,7 +1657,8 @@ function LoginScreen({
                   onChange={(event) => setPassword(event.target.value)}
                   type="password"
                   autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                  placeholder={mode === 'login' ? 'Your password' : 'Minimum 8 characters'}
+                  minLength={mode === 'register' ? 10 : undefined}
+                  placeholder={mode === 'login' ? 'Your password' : 'Minimum 10 characters'}
                 />
               </label>
             ) : null}

@@ -8459,7 +8459,7 @@ textarea:focus {
   flex: 0 0 auto;
 }
 
-/* My Files reserves one fixed action track; the leading status icon is the warning. */
+/* My Files reserves one fixed action track; warnings sit after Builds, before open. */
 .project-row-card {
   grid-template-columns: minmax(0, 1fr) minmax(310px, 0.86fr) 112px;
 }
@@ -8468,6 +8468,23 @@ textarea:focus {
   width: 112px;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.project-attention-indicator {
+  display: inline-grid !important;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  place-items: center;
+  overflow: visible !important;
+  color: #fb923c;
+}
+
+.project-attention-indicator svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
 }
 
 @media (max-width: 1280px) {

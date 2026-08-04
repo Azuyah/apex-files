@@ -3703,13 +3703,8 @@ function MyFilesPage({
           {projectRows.map(({ project, latestBuild, status, history, addonLabels }) => (
             <button className="project-row-card" key={project.id} type="button" onClick={() => setSelectedProjectId(project.id)}>
               <div className="project-row-main">
-                <div
-                  className="project-file-icon"
-                  role={status.key === 'failed' ? 'img' : undefined}
-                  aria-label={status.key === 'failed' ? 'Needs attention' : undefined}
-                  title={status.key === 'failed' ? 'Needs attention' : undefined}
-                >
-                  {status.key === 'ready' ? <CheckCircle2 size={18} /> : status.key === 'failed' ? <CircleAlert size={18} /> : <FolderClock size={18} />}
+                <div className="project-file-icon">
+                  {status.key === 'ready' ? <CheckCircle2 size={18} /> : <FolderClock size={18} />}
                 </div>
                 <div>
                   <div className="project-row-title">
@@ -3737,7 +3732,11 @@ function MyFilesPage({
               </div>
 
               <div className="project-row-open">
-                {status.key === 'ready' || status.key === 'failed' ? null : <StatusBadge status={status.status} />}
+                {status.key === 'failed' ? (
+                  <span className="project-attention-indicator" role="img" aria-label="Needs attention" title="Needs attention">
+                    <CircleAlert size={18} />
+                  </span>
+                ) : status.key === 'ready' ? null : <StatusBadge status={status.status} />}
                 <ChevronRight size={17} />
               </div>
             </button>

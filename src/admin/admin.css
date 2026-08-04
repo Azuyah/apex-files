@@ -118,8 +118,7 @@
 
 .admin-login-heading > span,
 .admin-panel-heading > div > span,
-.admin-drawer-section > header > div > span,
-.admin-drawer-header > div > span,
+.admin-user-section > header > div > span,
 .admin-modal > header > div > span,
 .admin-page-heading > div > span {
   display: flex;
@@ -171,8 +170,8 @@
 .admin-login-card input,
 .admin-modal input,
 .admin-modal select,
-.admin-user-drawer input,
-.admin-user-drawer select,
+.admin-user-page input,
+.admin-user-page select,
 .admin-search-field,
 .admin-toolbar-filters label {
   width: 100%;
@@ -188,16 +187,16 @@
 .admin-login-card input,
 .admin-modal input,
 .admin-modal select,
-.admin-user-drawer input,
-.admin-user-drawer select {
+.admin-user-page input,
+.admin-user-page select {
   padding: 0 12px;
 }
 
 .admin-login-card input:focus,
 .admin-modal input:focus,
 .admin-modal select:focus,
-.admin-user-drawer input:focus,
-.admin-user-drawer select:focus,
+.admin-user-page input:focus,
+.admin-user-page select:focus,
 .admin-search-field:focus-within {
   border-color: rgba(255,138,0,.58);
   box-shadow: 0 0 0 3px rgba(255,138,0,.09);
@@ -615,7 +614,7 @@
 .admin-data-table td { height: 59px; border-bottom: 1px solid var(--admin-line); padding: 9px 14px; color: #9ba5b1; font-size: 10px; }
 .admin-data-table tbody tr { transition: background 120ms ease; }
 .admin-data-table tbody tr:not(:has(.admin-empty-state)):hover { background: rgba(255,255,255,.022); }
-.admin-data-table tbody tr[onclick] { cursor: pointer; }
+.admin-data-table tbody tr[role="link"] { cursor: pointer; }
 .admin-data-table tbody tr:last-child td { border-bottom: 0; }
 .admin-primary-cell { color: #aeb7c1; font-size: 10px; }
 .admin-row-action { width: 30px; height: 30px; opacity: .35; }
@@ -657,8 +656,7 @@
 .admin-pagination button:hover:not(:disabled) { border-color: var(--admin-line-strong); color: #d8dfe6; }
 .admin-pagination button:disabled { cursor: not-allowed; opacity: .35; }
 
-.admin-modal-backdrop,
-.admin-drawer-backdrop {
+.admin-modal-backdrop {
   position: fixed;
   inset: 0;
   z-index: 100;
@@ -717,12 +715,22 @@
 .admin-user-picker > div > button { display: block; width: 100%; border: 0; border-radius: 6px; padding: 8px; color: inherit; background: transparent; text-align: left; }
 .admin-user-picker > div > button:hover { background: rgba(255,255,255,.045); }
 
-.admin-drawer-backdrop { z-index: 80; display: flex; justify-content: flex-end; padding: 0; }
-.admin-user-drawer { display: flex; flex-direction: column; overflow: hidden; width: min(100%, 640px); height: 100%; border-left: 1px solid rgba(255,255,255,.13); background: #11151a; box-shadow: -24px 0 80px rgba(0,0,0,.48); }
-.admin-drawer-header { display: flex; align-items: center; justify-content: space-between; min-height: 74px; border-bottom: 1px solid var(--admin-line); padding: 13px 20px; }
-.admin-drawer-header h2 { margin: 0; font-size: 16px; }
-.admin-drawer-header > div > span { margin-bottom: 4px; font-size: 8px; }
-.admin-drawer-content { overflow: auto; padding: 20px; }
+.admin-user-page { min-width: 0; }
+.admin-back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  border: 0;
+  padding: 0 7px 0 0;
+  color: #aeb7c1;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 750;
+}
+.admin-back-button:hover { color: var(--admin-orange); }
+.admin-user-page-heading { margin-top: 16px; }
+.admin-user-page-content { display: grid; gap: 18px; }
 .admin-profile-summary { display: flex; align-items: center; gap: 13px; border: 1px solid var(--admin-line); border-radius: 10px; padding: 16px; background: rgba(255,255,255,.018); }
 .admin-profile-summary > div { min-width: 0; margin-right: auto; }
 .admin-profile-summary h3 { overflow: hidden; margin: 0; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
@@ -735,10 +743,11 @@
 .admin-user-stat-grid strong { display: block; margin: 8px 0 3px; font-size: 17px; }
 .admin-user-stat-grid small { color: #626d7a; font-size: 8px; }
 
-.admin-drawer-section { border: 1px solid var(--admin-line); border-radius: 10px; margin-top: 13px; padding: 16px; background: rgba(255,255,255,.014); }
-.admin-drawer-section > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; }
-.admin-drawer-section > header h3 { margin: 0; font-size: 12px; }
-.admin-drawer-section > header > div > span { margin-bottom: 3px; font-size: 7px; }
+.admin-user-detail-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.admin-user-section { min-width: 0; border: 1px solid var(--admin-line); border-radius: 10px; padding: 18px; background: rgba(255,255,255,.014); }
+.admin-user-section > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 17px; }
+.admin-user-section > header h3 { margin: 0; font-size: 15px; }
+.admin-user-section > header > div > span { margin-bottom: 4px; }
 
 .admin-readonly-label {
   display: inline-flex;
@@ -830,6 +839,140 @@
 .admin-toast span { flex: 1; }
 .admin-toast > svg:last-child { color: #697481; }
 
+/* Readable admin type scale */
+.admin-app { font-size: 14px; }
+
+.admin-login-heading h1 { font-size: 33px; }
+.admin-login-heading p { font-size: 15px; }
+.admin-login-card input { height: 46px; font-size: 14px; }
+
+.admin-login-heading > span,
+.admin-panel-heading > div > span,
+.admin-user-section > header > div > span,
+.admin-modal > header > div > span,
+.admin-page-heading > div > span { font-size: 11px; }
+
+.admin-login-card form label > span,
+.admin-single-field > span,
+.admin-form-grid label > span { font-size: 13px; }
+
+.admin-primary-button,
+.admin-secondary-button,
+.admin-danger-button,
+.admin-text-button,
+.admin-receipt-button { min-height: 42px; font-size: 14px; }
+
+.admin-form-error,
+.admin-inline-error,
+.admin-inline-error button { font-size: 13px; }
+
+.admin-sidebar-brand > span,
+.admin-sidebar-label { font-size: 11px; }
+.admin-sidebar nav button { height: 48px; font-size: 14px; }
+.admin-system-status span { font-size: 12px; }
+.admin-system-status small { font-size: 11px; }
+
+.admin-topbar-search > button { font-size: 14px; }
+.admin-topbar-search kbd { font-size: 11px; }
+.admin-account-menu > button strong { font-size: 13px; }
+.admin-account-menu > button small,
+.admin-account-menu > div > span { font-size: 11px; }
+.admin-account-menu > div button { font-size: 13px; }
+.admin-avatar { font-size: 12px; }
+.admin-avatar.is-large { width: 58px; height: 58px; font-size: 17px; }
+
+.admin-page-heading h1 { font-size: clamp(29px, 2.8vw, 38px); }
+.admin-page-heading p { font-size: 15px; }
+.admin-page-heading-actions > span { font-size: 12px; }
+
+.admin-stat-card > div span { font-size: 12px; }
+.admin-stat-card > strong { font-size: 29px; }
+.admin-stat-card > small { font-size: 12px; }
+.admin-panel-heading h2 { font-size: 17px; }
+.admin-panel-period { font-size: 11px; }
+.admin-chart-column small,
+.admin-chart-value { font-size: 10px; }
+.admin-plan-list > div > div span { font-size: 13px; }
+.admin-plan-list > div > div strong { font-size: 15px; }
+.admin-plan-list small,
+.admin-list-meta small { font-size: 11px; }
+.admin-user-cell strong { font-size: 14px; }
+.admin-user-cell small { font-size: 12px; }
+.admin-purchase-list strong { font-size: 13px; }
+.admin-purchase-list small { font-size: 11px; }
+
+.admin-loading-block { font-size: 14px; }
+.admin-empty-state h3 { font-size: 16px; }
+.admin-empty-state p { font-size: 13px; }
+.admin-mini-stat-grid span { font-size: 11px; }
+.admin-mini-stat-grid strong { font-size: 24px; }
+.admin-mini-stat-grid small { font-size: 12px; }
+
+.admin-search-field,
+.admin-toolbar-filters label { height: 42px; }
+.admin-search-field input,
+.admin-toolbar-filters select { font-size: 13px; }
+.admin-toolbar-filters select { height: 40px; }
+.admin-toolbar-filters .admin-icon-button { height: 42px; }
+.admin-table-summary { height: 42px; font-size: 12px; }
+.admin-data-table th { height: 46px; font-size: 11px; }
+.admin-data-table td { height: 70px; padding-top: 12px; padding-bottom: 12px; font-size: 13px; }
+.admin-data-table tbody tr[role="link"]:focus-visible { outline: 2px solid rgba(255, 138, 0, .72); outline-offset: -2px; }
+.admin-primary-cell { font-size: 13px; }
+.admin-row-action { width: 36px; height: 36px; }
+.admin-status-pill,
+.admin-package-pill { padding: 5px 10px; font-size: 11px; }
+.admin-usage-cell small { font-size: 12px; }
+.admin-pagination { height: 62px; }
+.admin-pagination > span { font-size: 12px; }
+.admin-pagination button { height: 38px; padding: 0 12px; font-size: 12px; }
+
+.admin-modal > header h2 { font-size: 19px; }
+.admin-modal-copy { font-size: 13px; }
+.admin-form-grid input,
+.admin-form-grid select { height: 44px; font-size: 14px; }
+.admin-form-grid.compact input,
+.admin-form-grid.compact select { height: 42px; }
+.admin-input-action button { font-size: 12px; }
+.admin-copy-result { font-size: 13px; }
+.admin-create-success strong { font-size: 14px; }
+.admin-create-success small { font-size: 12px; }
+
+.admin-back-button { font-size: 14px; }
+.admin-profile-summary { padding: 20px; }
+.admin-profile-summary h3 { overflow: visible; font-size: 19px; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; }
+.admin-profile-summary p { overflow: visible; font-size: 13px; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; }
+.admin-user-stat-grid { gap: 14px; margin: 0; }
+.admin-user-stat-grid > div { padding: 17px; }
+.admin-user-stat-grid span { font-size: 11px; }
+.admin-user-stat-grid strong { font-size: 23px; }
+.admin-user-stat-grid small { font-size: 12px; }
+.admin-user-section > header h3 { font-size: 17px; }
+.admin-readonly-label { font-size: 11px; }
+.admin-detail-grid > div { padding: 13px 14px; }
+.admin-detail-grid span { font-size: 11px; }
+.admin-detail-grid strong { overflow: visible; font-size: 13px; line-height: 1.45; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; }
+
+.admin-audit-list strong,
+.admin-revenue-list strong { font-size: 13px; }
+.admin-audit-list small,
+.admin-revenue-list small { font-size: 11px; }
+.admin-revenue-list > div > strong { font-size: 14px; }
+.admin-danger-zone strong { font-size: 14px; }
+.admin-danger-zone p { font-size: 12px; }
+.admin-confirm-body p { font-size: 13px; }
+.admin-purchase-summary > div > span { font-size: 11px; }
+.admin-purchase-summary > div > strong { font-size: 22px; }
+.admin-purchase-summary > div > small { font-size: 12px; }
+.admin-ledger-note strong { font-size: 13px; }
+.admin-ledger-note span { font-size: 12px; }
+.admin-receipt-number,
+.admin-table-person strong,
+.admin-money-cell { font-size: 13px; }
+.admin-table-person small { font-size: 11px; }
+.admin-receipt-button { padding: 0 12px; font-size: 12px; }
+.admin-toast { font-size: 13px; }
+
 .sr-only { position: absolute; overflow: hidden; width: 1px; height: 1px; padding: 0; border: 0; margin: -1px; clip: rect(0,0,0,0); white-space: nowrap; }
 
 @media (max-width: 1180px) {
@@ -859,6 +1002,7 @@
   .admin-account-menu > button > span:nth-child(2),
   .admin-account-menu > button > svg { display: none; }
   .admin-mini-stat-grid { grid-template-columns: 1fr; }
+  .admin-user-detail-columns { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 620px) {
@@ -874,6 +1018,8 @@
   .admin-purchase-summary .admin-ledger-note { grid-column: auto; }
   .admin-form-grid { grid-template-columns: 1fr; }
   .admin-form-grid label.is-wide { grid-column: auto; }
+  .admin-detail-grid { grid-template-columns: 1fr; }
+  .admin-detail-grid > div.is-wide { grid-column: auto; }
   .admin-user-stat-grid { grid-template-columns: 1fr; }
   .admin-profile-summary { align-items: flex-start; flex-wrap: wrap; }
   .admin-profile-summary > div { width: calc(100% - 70px); }

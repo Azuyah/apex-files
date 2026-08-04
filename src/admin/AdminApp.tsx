@@ -65,7 +65,33 @@ import {
 } from '../lib/admin-api';
 
 type AdminPageKey = 'overview' | 'users' | 'subscriptions' | 'purchases';
+type AdminRoute = { page: AdminPageKey; userId: string | null };
 type Toast = { id: number; tone: 'success' | 'error'; message: string };
+
+const ADMIN_PAGE_PATHS: Record<AdminPageKey, string> = {
+  overview: '/',
+  users: '/users',
+  subscriptions: '/subscriptions',
+  purchases: '/purchases',
+};
+
+function readAdminRoute(pathname = window.location.pathname): AdminRoute {
+  const parts = pathname.split('/').filter(Boolean);
+  if (parts[0] === 'users') {
+    let userId: string | null = null;
+    if (parts[1]) {
+      try {
+        userId = decodeURIComponent(parts[1]);
+      } catch {
+        userId = parts[1];
+      }
+    }
+    return { page: 'users', userId };
+  }
+  if (parts[0] === 'subscriptions') return { page: 'subscriptions', userId: null };
+  if (parts[0] === 'purchases') return { page: 'purchases', userId: null };
+  return { page: 'overview', userId: null };
+}
 
 const EMPTY_PAGE = { items: [], total: 0, page: 1, page_size: 25, pages: 1 };
 const PLAN_OPTIONS = [
@@ -527,7 +553,7 @@ function ResetPasswordModal({ user, currentAdminId, onSelfReset, onClose, notify
   );
 }
 
-function UserDrawer({ userId, currentAdminId, onSelfReset, onClose, onChanged, notify }: { userId: string; currentAdminId: string; onSelfReset: () => void; onClose: () => void; onChanged: (user: AdminUser) => void; notify: (tone: Toast['tone'], message: string) => void }) {
+function UserDetailPage({ userId, currentAdminId, onSelfReset, onBack, backLabel, notify }: { userId: string; currentAdminId: string; onSelfReset: () => void; onBack: () => void; backLabel: string; notify: (tone: Toast['tone'], message: string) => void }) {
   const [user, setUser] = useState<AdminUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -576,7 +602,6 @@ function UserDrawer({ userId, currentAdminId, onSelfReset, onClose, onChanged, n
       });
       const updated = { ...user, selected_package: subscription.package_key, subscription: updatedSubscription };
       setUser(updated);
-      onChanged(updated);
       notify('success', 'Subscription updated.');
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Could not update subscription.');
@@ -592,7 +617,6 @@ function UserDrawer({ userId, currentAdminId, onSelfReset, onClose, onChanged, n
     try {
       const updated = await setAdminUserStatus(user.id, !user.is_active);
       setUser(updated);
-      onChanged(updated);
       setConfirmStatus(false);
       notify('success', updated.is_active ? 'Account activated.' : 'Account disabled.');
     } catch (nextError) {
@@ -603,14 +627,13 @@ function UserDrawer({ userId, currentAdminId, onSelfReset, onClose, onChanged, n
   }
 
   return (
-    <div className="admin-drawer-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <aside className="admin-user-drawer" role="dialog" aria-modal="true" aria-label="User details">
-        <header className="admin-drawer-header">
-          <div><span>User profile</span><h2>{user?.display_name || user?.email || 'Account details'}</h2></div>
-          <button type="button" className="admin-icon-button" onClick={onClose}><X size={19} /></button>
-        </header>
-        {loading ? <LoadingBlock label="Loading user" /> : error && !user ? <EmptyState icon={<AlertTriangle size={20} />} title="Could not load user" body={error} action={<button className="admin-secondary-button" type="button" onClick={() => void load()}><RefreshCw size={15} />Try again</button>} /> : user ? (
-          <div className="admin-drawer-content">
+    <div className="admin-user-page">
+      <button type="button" className="admin-back-button" onClick={onBack}><ChevronLeft size={18} />{backLabel}</button>
+      <header className="admin-page-heading admin-user-page-heading">
+        <div><span>User profile</span><h1>{user?.display_name || user?.email || 'Account details'}</h1><p>Review account information, usage, access and subscription settings.</p></div>
+      </header>
+      {loading ? <LoadingBlock label="Loading user" /> : error && !user ? <EmptyState icon={<AlertTriangle size={20} />} title="Could not load user" body={error} action={<button className="admin-secondary-button" type="button" onClick={() => void load()}><RefreshCw size={15} />Try again</button>} /> : user ? (
+        <div className="admin-user-page-content">
             <section className="admin-profile-summary">
               <span className="admin-avatar is-large">{initials(user)}</span>
               <div><h3>{user.display_name || 'Unnamed user'}</h3><p>{user.email}</p><span><StatusPill active={user.is_active} /><PackagePill value={user.subscription?.plan_name || user.selected_package} /></span></div>
@@ -623,29 +646,31 @@ function UserDrawer({ userId, currentAdminId, onSelfReset, onClose, onChanged, n
               <div><span>Purchases</span><strong>{user.stats?.purchases_total ?? 0}</strong><small>{user.stats?.paid_by_currency?.length === 1 ? money(user.stats.paid_by_currency[0].amount_minor, user.stats.paid_by_currency[0].currency) : user.stats?.paid_by_currency?.length ? `${user.stats.paid_by_currency.length} currencies` : 'No paid records'}</small></div>
             </section>
 
-            <section className="admin-drawer-section">
-              <header><div><span>Account</span><h3>Contact details</h3></div><span className="admin-readonly-label"><Eye size={13} />Read only</span></header>
-              <div className="admin-detail-grid">
-                <div><span>Name</span><strong>{user.display_name || '—'}</strong></div>
-                <div><span>Company</span><strong>{user.company_name || '—'}</strong></div>
-                <div className="is-wide"><span>Email</span><strong>{user.email}</strong></div>
-                <div><span>VAT number</span><strong>{user.vat_number || '—'}</strong></div>
-                <div><span>Phone</span><strong>{user.phone_number || '—'}</strong></div>
-                <div><span>Country</span><strong>{user.country || '—'}</strong></div>
-                <div><span>Role</span><strong>{user.role === 'admin' ? 'Administrator' : 'Tuner'}</strong></div>
-              </div>
-            </section>
+            <div className="admin-user-detail-columns">
+              <section className="admin-user-section">
+                <header><div><span>Account</span><h3>Contact details</h3></div><span className="admin-readonly-label"><Eye size={13} />Read only</span></header>
+                <div className="admin-detail-grid">
+                  <div><span>Name</span><strong>{user.display_name || '—'}</strong></div>
+                  <div><span>Company</span><strong>{user.company_name || '—'}</strong></div>
+                  <div className="is-wide"><span>Email</span><strong>{user.email}</strong></div>
+                  <div><span>VAT number</span><strong>{user.vat_number || '—'}</strong></div>
+                  <div><span>Phone</span><strong>{user.phone_number || '—'}</strong></div>
+                  <div><span>Country</span><strong>{user.country || '—'}</strong></div>
+                  <div><span>Role</span><strong>{user.role === 'admin' ? 'Administrator' : 'Tuner'}</strong></div>
+                </div>
+              </section>
 
-            <form className="admin-drawer-section" onSubmit={saveSubscription}>
-              <header><div><span>Billing</span><h3>Subscription</h3></div><button className="admin-text-button" type="submit" disabled={saving}>{saving ? <Loader2 className="admin-spin" size={14} /> : <Check size={14} />}Save</button></header>
-              <div className="admin-form-grid compact">
-                <label><span>Package</span><select value={subscription.package_key} onChange={(event) => { const selected = PLAN_OPTIONS.find((plan) => plan.key === event.target.value) || PLAN_OPTIONS[0]; setSubscription({ ...subscription, package_key: selected.key, plan_name: selected.label, monthly_file_limit: selected.limit }); }}>{PLAN_OPTIONS.map((plan) => <option key={plan.key} value={plan.key}>{plan.label}</option>)}</select></label>
-                <label><span>Status</span><select value={subscription.status} onChange={(event) => setSubscription({ ...subscription, status: event.target.value })}><option value="active">Active</option><option value="inactive">Inactive</option><option value="past_due">Past due</option><option value="cancelled">Cancelled</option></select></label>
-                <label><span>Monthly limit</span><input type="number" min={0} value={subscription.monthly_file_limit} onChange={(event) => setSubscription({ ...subscription, monthly_file_limit: Number(event.target.value) })} /></label>
-                <label><span>Files used</span><input type="number" min={0} value={subscription.files_used_this_period} onChange={(event) => setSubscription({ ...subscription, files_used_this_period: Number(event.target.value) })} /></label>
-                <label className="is-wide"><span>Period ends</span><input type="date" value={subscription.period_ends_at} onChange={(event) => setSubscription({ ...subscription, period_ends_at: event.target.value })} /></label>
-              </div>
-            </form>
+              <form className="admin-user-section" onSubmit={saveSubscription}>
+                <header><div><span>Billing</span><h3>Subscription</h3></div><button className="admin-text-button" type="submit" disabled={saving}>{saving ? <Loader2 className="admin-spin" size={14} /> : <Check size={14} />}Save</button></header>
+                <div className="admin-form-grid compact">
+                  <label><span>Package</span><select value={subscription.package_key} onChange={(event) => { const selected = PLAN_OPTIONS.find((plan) => plan.key === event.target.value) || PLAN_OPTIONS[0]; setSubscription({ ...subscription, package_key: selected.key, plan_name: selected.label, monthly_file_limit: selected.limit }); }}>{PLAN_OPTIONS.map((plan) => <option key={plan.key} value={plan.key}>{plan.label}</option>)}</select></label>
+                  <label><span>Status</span><select value={subscription.status} onChange={(event) => setSubscription({ ...subscription, status: event.target.value })}><option value="active">Active</option><option value="inactive">Inactive</option><option value="past_due">Past due</option><option value="cancelled">Cancelled</option></select></label>
+                  <label><span>Monthly limit</span><input type="number" min={0} value={subscription.monthly_file_limit} onChange={(event) => setSubscription({ ...subscription, monthly_file_limit: Number(event.target.value) })} /></label>
+                  <label><span>Files used</span><input type="number" min={0} value={subscription.files_used_this_period} onChange={(event) => setSubscription({ ...subscription, files_used_this_period: Number(event.target.value) })} /></label>
+                  <label className="is-wide"><span>Period ends</span><input type="date" value={subscription.period_ends_at} onChange={(event) => setSubscription({ ...subscription, period_ends_at: event.target.value })} /></label>
+                </div>
+              </form>
+            </div>
 
             {error ? <div className="admin-form-error"><AlertTriangle size={15} />{error}</div> : null}
 
@@ -653,9 +678,8 @@ function UserDrawer({ userId, currentAdminId, onSelfReset, onClose, onChanged, n
               <div><strong>{user.is_active ? 'Disable this account' : 'Reactivate this account'}</strong><p>{user.is_active ? 'The user will immediately lose access to Apex Files.' : 'Restore access to Apex Files for this user.'}</p></div>
               <button type="button" className={clsx('admin-danger-button', !user.is_active && 'is-activate')} onClick={() => setConfirmStatus(true)}>{user.is_active ? <UserX size={15} /> : <UserCheck size={15} />}{user.is_active ? 'Disable account' : 'Activate account'}</button>
             </section>
-          </div>
-        ) : null}
-      </aside>
+        </div>
+      ) : null}
       {passwordOpen && user ? <ResetPasswordModal user={user} currentAdminId={currentAdminId} onSelfReset={onSelfReset} onClose={() => setPasswordOpen(false)} notify={notify} /> : null}
       {confirmStatus && user ? (
         <Modal title={user.is_active ? 'Disable account?' : 'Activate account?'} eyebrow={user.email} onClose={() => setConfirmStatus(false)}>
@@ -666,7 +690,7 @@ function UserDrawer({ userId, currentAdminId, onSelfReset, onClose, onChanged, n
   );
 }
 
-function UsersPage({ notify, currentAdminId, onSelfReset, subscriptionsOnly = false }: { notify: (tone: Toast['tone'], message: string) => void; currentAdminId: string; onSelfReset: () => void; subscriptionsOnly?: boolean }) {
+function UsersPage({ notify, onOpenUser, subscriptionsOnly = false }: { notify: (tone: Toast['tone'], message: string) => void; onOpenUser: (userId: string) => void; subscriptionsOnly?: boolean }) {
   const [users, setUsers] = useState<AdminPage<AdminUser>>(EMPTY_PAGE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -675,7 +699,6 @@ function UsersPage({ notify, currentAdminId, onSelfReset, subscriptionsOnly = fa
   const [status, setStatus] = useState('all');
   const [plan, setPlan] = useState('all');
   const [page, setPage] = useState(1);
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
 
   const load = useCallback(async () => {
@@ -729,14 +752,14 @@ function UsersPage({ notify, currentAdminId, onSelfReset, subscriptionsOnly = fa
                 const limit = subscription?.monthly_file_limit ?? 0;
                 const used = subscription?.files_used_this_period ?? 0;
                 return (
-                  <tr key={user.id} onClick={() => setSelectedUserId(user.id)}>
+                  <tr key={user.id} role="link" tabIndex={0} onClick={() => onOpenUser(user.id)} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onOpenUser(user.id); } }}>
                     <td><UserCell user={user} /></td>
                     <td>{subscriptionsOnly ? <PackagePill value={subscription?.plan_name || user.selected_package} /> : <span className="admin-primary-cell">{user.company_name || '—'}</span>}</td>
                     <td>{subscriptionsOnly ? <div className="admin-usage-cell"><span><i style={{ width: `${Math.min(100, limit ? (used / limit) * 100 : 0)}%` }} /></span><small>{used} / {limit >= 9999 ? '∞' : limit}</small></div> : <PackagePill value={subscription?.plan_name || user.selected_package} />}</td>
                     <td>{subscriptionsOnly ? <span className="admin-primary-cell">{dateOnlyLabel(subscription?.period_ends_at)}</span> : <span className="admin-primary-cell">{user.stats?.builds_total ?? 0} builds</span>}</td>
                     <td><StatusPill active={user.is_active && (!subscriptionsOnly || subscription?.status === 'active')} label={subscriptionsOnly && subscription?.status !== 'active' ? subscription?.status : undefined} /></td>
                     <td><span className="admin-primary-cell">{dateLabel(user.created_at)}</span></td>
-                    <td><button type="button" className="admin-icon-button admin-row-action" onClick={(event) => { event.stopPropagation(); setSelectedUserId(user.id); }}><MoreHorizontal size={17} /></button></td>
+                    <td><button type="button" className="admin-icon-button admin-row-action" aria-label={`Open ${user.display_name || user.email}`} onClick={(event) => { event.stopPropagation(); onOpenUser(user.id); }}><MoreHorizontal size={17} /></button></td>
                   </tr>
                 );
               })}
@@ -746,12 +769,11 @@ function UsersPage({ notify, currentAdminId, onSelfReset, subscriptionsOnly = fa
         <footer className="admin-pagination"><span>Page {page} of {maxPage}</span><div><button type="button" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}><ChevronLeft size={16} />Previous</button><button type="button" disabled={page >= maxPage} onClick={() => setPage((current) => current + 1)}>Next<ChevronRight size={16} /></button></div></footer>
       </section>
       {createOpen ? <CreateUserModal onClose={() => setCreateOpen(false)} notify={notify} onCreated={() => { void load(); }} /> : null}
-      {selectedUserId ? <UserDrawer userId={selectedUserId} currentAdminId={currentAdminId} onSelfReset={onSelfReset} onClose={() => setSelectedUserId(null)} notify={notify} onChanged={(updated) => setUsers((current) => ({ ...current, items: current.items.map((user) => user.id === updated.id ? updated : user) }))} /> : null}
     </div>
   );
 }
 
-function SubscriptionsPage({ notify, currentAdminId, onSelfReset }: { notify: (tone: Toast['tone'], message: string) => void; currentAdminId: string; onSelfReset: () => void }) {
+function SubscriptionsPage({ onOpenUser }: { onOpenUser: (userId: string) => void }) {
   const [subscriptions, setSubscriptions] = useState<AdminPage<AdminSubscriptionListItem>>(EMPTY_PAGE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -760,7 +782,6 @@ function SubscriptionsPage({ notify, currentAdminId, onSelfReset }: { notify: (t
   const [status, setStatus] = useState('all');
   const [plan, setPlan] = useState('all');
   const [page, setPage] = useState(1);
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -835,14 +856,14 @@ function SubscriptionsPage({ notify, currentAdminId, onSelfReset }: { notify: (t
                   stats: { projects_total: 0, builds_total: 0, builds_ready: 0, builds_failed: 0, purchases_total: 0, paid_by_currency: [], last_build_at: null },
                 };
                 return (
-                  <tr key={subscription.id} onClick={() => setSelectedUserId(subscription.user.id)}>
+                  <tr key={subscription.id} role="link" tabIndex={0} onClick={() => onOpenUser(subscription.user.id)} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onOpenUser(subscription.user.id); } }}>
                     <td><UserCell user={userForCell} /></td>
                     <td><PackagePill value={subscription.plan_name || subscription.selected_package} /></td>
                     <td><div className="admin-usage-cell"><span><i style={{ width: `${Math.min(100, subscription.usage_percent)}%` }} /></span><small>{used} / {limit >= 9999 ? '∞' : limit} ({Math.round(subscription.usage_percent)}%)</small></div></td>
                     <td><div className="admin-table-person"><strong>{dateOnlyLabel(subscription.period_ends_at)}</strong><small>Started {dateOnlyLabel(subscription.period_started_at)}</small></div></td>
                     <td><StatusPill active={subscription.status === 'active'} label={subscription.status.replace(/_/g, ' ')} /></td>
                     <td><StatusPill active={subscription.is_active} /></td>
-                    <td><button type="button" className="admin-receipt-button" onClick={(event) => { event.stopPropagation(); setSelectedUserId(subscription.user.id); }}><Settings2 size={15} />Quick edit</button></td>
+                    <td><button type="button" className="admin-receipt-button" onClick={(event) => { event.stopPropagation(); onOpenUser(subscription.user.id); }}><Settings2 size={15} />View profile</button></td>
                   </tr>
                 );
               })}
@@ -851,7 +872,6 @@ function SubscriptionsPage({ notify, currentAdminId, onSelfReset }: { notify: (t
         </div>
         <footer className="admin-pagination"><span>Page {page} of {maxPage}</span><div><button type="button" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}><ChevronLeft size={16} />Previous</button><button type="button" disabled={page >= maxPage} onClick={() => setPage((current) => current + 1)}>Next<ChevronRight size={16} /></button></div></footer>
       </section>
-      {selectedUserId ? <UserDrawer userId={selectedUserId} currentAdminId={currentAdminId} onSelfReset={onSelfReset} onClose={() => setSelectedUserId(null)} notify={notify} onChanged={() => void load()} /> : null}
     </div>
   );
 }
@@ -1013,7 +1033,7 @@ function pageMeta(page: AdminPageKey) {
 export default function AdminApp() {
   const [user, setUser] = useState<AdminSessionUser | null>(null);
   const [loading, setLoading] = useState(Boolean(readAdminToken()));
-  const [activePage, setActivePage] = useState<AdminPageKey>('overview');
+  const [route, setRoute] = useState<AdminRoute>(() => readAdminRoute());
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -1053,9 +1073,41 @@ export default function AdminApp() {
     return () => window.removeEventListener('pointerdown', close);
   }, []);
 
+  useEffect(() => {
+    const syncRoute = () => {
+      setRoute(readAdminRoute());
+      setSidebarOpen(false);
+      window.scrollTo({ top: 0 });
+    };
+    window.addEventListener('popstate', syncRoute);
+    return () => window.removeEventListener('popstate', syncRoute);
+  }, []);
+
   function navigate(page: AdminPageKey) {
-    setActivePage(page);
+    const path = ADMIN_PAGE_PATHS[page];
+    if (`${window.location.pathname}${window.location.search}` !== path) {
+      window.history.pushState({ apexAdminRoute: true }, '', path);
+    }
+    setRoute({ page, userId: null });
     setSidebarOpen(false);
+    window.scrollTo({ top: 0 });
+  }
+
+  function openUser(userId: string, returnPage: 'users' | 'subscriptions') {
+    const path = `/users/${encodeURIComponent(userId)}`;
+    window.history.pushState({ apexAdminRoute: true, apexAdminUserRoute: true, adminReturnPage: returnPage }, '', path);
+    setRoute({ page: 'users', userId });
+    setSidebarOpen(false);
+    window.scrollTo({ top: 0 });
+  }
+
+  function leaveUserPage() {
+    const state = window.history.state as { apexAdminUserRoute?: boolean; adminReturnPage?: AdminPageKey } | null;
+    if (state?.apexAdminUserRoute) {
+      window.history.back();
+      return;
+    }
+    navigate(state?.adminReturnPage === 'subscriptions' ? 'subscriptions' : 'users');
   }
 
   function logout() {
@@ -1073,7 +1125,9 @@ export default function AdminApp() {
     { key: 'subscriptions', label: 'Subscriptions', icon: <CreditCard size={19} /> },
     { key: 'purchases', label: 'Purchases & records', icon: <FileText size={19} /> },
   ];
+  const activePage = route.page;
   const meta = pageMeta(activePage);
+  const userReturnPage = window.history.state?.adminReturnPage === 'subscriptions' ? 'subscriptions' : 'users';
 
   return (
     <div className="admin-app">
@@ -1103,14 +1157,20 @@ export default function AdminApp() {
         </header>
 
         <main className="admin-workspace">
-          <header className="admin-page-heading">
-            <div><span>{meta.eyebrow}</span><h1>{meta.title}</h1><p>{meta.body}</p></div>
-            <div className="admin-page-heading-actions"><span><i />Live data</span>{activePage === 'users' ? <button type="button" className="admin-secondary-button" onClick={() => window.location.reload()}><RefreshCw size={15} />Refresh</button> : null}</div>
-          </header>
-          {activePage === 'overview' ? <DashboardPage onOpenUsers={() => navigate('users')} onOpenPurchases={() => navigate('purchases')} /> : null}
-          {activePage === 'users' ? <UsersPage notify={notify} currentAdminId={user.id} onSelfReset={logout} /> : null}
-          {activePage === 'subscriptions' ? <SubscriptionsPage notify={notify} currentAdminId={user.id} onSelfReset={logout} /> : null}
-          {activePage === 'purchases' ? <PurchasesPage notify={notify} /> : null}
+          {route.userId ? (
+            <UserDetailPage userId={route.userId} currentAdminId={user.id} onSelfReset={logout} onBack={leaveUserPage} backLabel={`Back to ${userReturnPage}`} notify={notify} />
+          ) : (
+            <>
+              <header className="admin-page-heading">
+                <div><span>{meta.eyebrow}</span><h1>{meta.title}</h1><p>{meta.body}</p></div>
+                <div className="admin-page-heading-actions"><span><i />Live data</span>{activePage === 'users' ? <button type="button" className="admin-secondary-button" onClick={() => window.location.reload()}><RefreshCw size={15} />Refresh</button> : null}</div>
+              </header>
+              {activePage === 'overview' ? <DashboardPage onOpenUsers={() => navigate('users')} onOpenPurchases={() => navigate('purchases')} /> : null}
+              {activePage === 'users' ? <UsersPage notify={notify} onOpenUser={(userId) => openUser(userId, 'users')} /> : null}
+              {activePage === 'subscriptions' ? <SubscriptionsPage onOpenUser={(userId) => openUser(userId, 'subscriptions')} /> : null}
+              {activePage === 'purchases' ? <PurchasesPage notify={notify} /> : null}
+            </>
+          )}
         </main>
       </div>
       <ToastStack toasts={toasts} dismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))} />

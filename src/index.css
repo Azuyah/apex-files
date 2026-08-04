@@ -5779,7 +5779,7 @@ textarea:focus {
   gap: 18px;
 }
 
-.dashboard-command-head span,
+.dashboard-command-head > div:first-child > span,
 .dashboard-package-primary span,
 .health-grid span {
   color: rgba(148, 163, 184, 0.86);
@@ -8196,4 +8196,160 @@ textarea:focus {
 .project-edit-form textarea:focus {
   border-color: rgba(255, 138, 0, 0.62);
   box-shadow: 0 0 0 2px rgba(255, 138, 0, 0.08);
+}
+
+/* Customer workspace typography: match the calmer File Service hierarchy. */
+.workspace-heading > div > span,
+.section-heading > div > span {
+  font-weight: 500;
+}
+
+.workspace-heading h1,
+.section-heading h2 {
+  font-weight: 700;
+}
+
+.empty-state strong,
+.table-row strong {
+  font-weight: 600;
+}
+
+.table-row {
+  font-weight: 400;
+}
+
+/* Dashboard keeps strong values and actions, while supporting copy stays lighter. */
+.dashboard-command-head > div:first-child > span,
+.dashboard-package-primary span,
+.health-grid span {
+  font-weight: 500;
+}
+
+.dashboard-command-head h2 {
+  font-weight: 700;
+}
+
+.dashboard-command-head p,
+.dashboard-package-primary small,
+.dashboard-project-list small,
+.quick-actions-grid span {
+  font-weight: 400;
+}
+
+.metric-card strong,
+.dashboard-package-primary strong {
+  font-weight: 700;
+}
+
+.dashboard-page .job-title-row span,
+.pipeline-row {
+  font-weight: 400;
+}
+
+.dashboard-page .job-title-row strong,
+.pipeline-row strong,
+.health-grid strong,
+.dashboard-project-list strong,
+.quick-actions-grid strong {
+  font-weight: 600;
+}
+
+/* Saved files and project details use weight for hierarchy, not every data point. */
+.my-files-search input,
+.my-files-sort select,
+.project-row-main span,
+.project-row-main small,
+.project-row-subtitle-clean,
+.project-page-header p,
+.project-file-hero small,
+.project-download-state span,
+.project-comments-card p,
+.project-timeline small,
+.project-edit-form input,
+.project-edit-form textarea {
+  font-weight: 400;
+}
+
+.project-row-meta span,
+.project-file-hero span,
+.project-facts-grid span,
+.project-comments-card .section-heading span,
+.project-activity-card .section-heading span,
+.project-download-panel .section-heading span,
+.project-edit-form span {
+  font-weight: 500;
+}
+
+.project-row-title strong,
+.project-row-meta strong,
+.project-file-hero strong,
+.project-facts-grid strong,
+.project-download-state strong,
+.project-timeline strong {
+  font-weight: 600;
+}
+
+.project-page-header h1 {
+  font-weight: 700;
+}
+
+.project-page-header .project-header-meta span,
+.project-page-state > span:last-child {
+  font-weight: 400;
+  text-transform: none;
+}
+
+.project-option-strip span,
+.project-empty-note {
+  font-weight: 500;
+}
+
+/* Packages, support, settings and account pages follow the same restrained scale. */
+.package-current-summary p,
+.pricing-card > p,
+.pricing-card li,
+.package-footer-row span,
+.support-card span,
+.profile-block p,
+.plan-block p {
+  font-weight: 400;
+}
+
+.package-current-summary .job-title-row span,
+.package-current-stats span,
+.pricing-card-head span:not(.pricing-icon),
+.pricing-rates span,
+.support-form-panel label > span,
+.settings-grid label > span,
+.profile-block > span,
+.plan-block > span,
+.usage-meta {
+  font-weight: 500;
+}
+
+.package-current-summary .job-title-row strong,
+.package-current-stats strong,
+.pricing-rates strong,
+.package-footer-row strong,
+.support-card strong,
+.profile-block strong,
+.plan-block strong {
+  font-weight: 600;
+}
+
+.pricing-card-head strong {
+  font-weight: 700;
+}
+
+.pricing-price strong {
+  font-weight: 800;
+}
+
+.pricing-price span {
+  font-weight: 400;
+}
+
+.account-tabs button,
+.setting-toggle > span {
+  font-weight: 600;
 }

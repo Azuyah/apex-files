@@ -8353,3 +8353,130 @@ textarea:focus {
 .setting-toggle > span {
   font-weight: 600;
 }
+
+/* Stable availability states: FOUND stays orange, CHECK is blue, REQUEST is quiet. */
+.stage-option.candidate em,
+.addon-tile.candidate .addon-availability {
+  border-color: rgba(59, 130, 246, 0.48);
+  color: #60a5fa;
+  background: rgba(59, 130, 246, 0.1);
+}
+
+/* Modal and delivery typography follows the same restrained workspace scale. */
+.modal-heading > div:not(.modal-icon) > span,
+.finished-summary > div > span,
+.modal-file-strip span,
+.delivery-save-form label > span,
+.delivery-path-heading > div > span,
+.delivery-group-label,
+.delivery-request-summary > div > span,
+.request-comment-field > span,
+.delivery-modal-progress .job-title-row span,
+.build-summary dt,
+.match-details-brandmark .brand-value span,
+.match-details-hero-copy > span,
+.match-details-list div > span,
+.available-alternatives p span {
+  font-weight: 500;
+}
+
+.delivery-path-heading p,
+.delivery-stage-option small,
+.delivery-addon-tile .addon-copy small,
+.delivery-empty-option,
+.delivery-preparing-progress > div:first-child > span,
+.delivery-meta,
+.match-details-hero-copy p,
+.available-alternatives p {
+  font-weight: 400;
+}
+
+.finished-summary > div > strong,
+.modal-file-strip strong,
+.delivery-stage-option strong,
+.delivery-addon-tile .addon-copy strong,
+.delivery-request-summary > div > strong,
+.build-summary dd,
+.match-details-list div > strong,
+.match-details-section h3,
+.available-alternatives strong,
+.available-choice strong {
+  font-weight: 600;
+}
+
+.modal-heading h2,
+.delivery-path-heading h3,
+.match-details-hero-copy h3,
+.delivery-preparing-progress strong {
+  font-weight: 700;
+}
+
+.success-panel {
+  font-weight: 500;
+}
+
+.modal-card .primary-action,
+.modal-card .secondary-action,
+.modal-card .quiet-action {
+  font-weight: 600;
+}
+
+.account-dropdown button {
+  font-weight: 500;
+}
+
+.header-account-trigger.header-plan strong {
+  font-weight: 600;
+}
+
+.header-account-trigger.header-plan span {
+  font-weight: 400;
+}
+
+/* Keep Dashboard status pills horizontal, compact and comfortably padded. */
+.dashboard-page .table-row > div:last-child {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.dashboard-page .table-row .status-badge {
+  display: inline-flex;
+  width: max-content;
+  min-height: 26px;
+  align-items: center;
+  gap: 5px;
+  overflow: visible;
+  padding: 5px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  text-overflow: clip;
+}
+
+.dashboard-page .table-row .status-badge svg {
+  display: block;
+  flex: 0 0 auto;
+}
+
+/* My Files reserves one fixed action track; the leading status icon is the warning. */
+.project-row-card {
+  grid-template-columns: minmax(0, 1fr) minmax(310px, 0.86fr) 112px;
+}
+
+.project-row-open {
+  width: 112px;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 1280px) {
+  .project-row-card {
+    grid-template-columns: 1fr;
+  }
+
+  .project-row-open {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}

@@ -1226,6 +1226,10 @@ function TopChrome({
                   <UserCircle size={15} />
                   Account
                 </button>
+                <button type="button" role="menuitem" onClick={() => navigate('packages')}>
+                  <Gauge size={15} />
+                  Packages
+                </button>
                 <button type="button" role="menuitem" onClick={() => navigate('my-files')}>
                   <FolderClock size={15} />
                   My Files
@@ -1723,7 +1727,6 @@ function Sidebar({
     { key: 'file-service', page: 'file-service', label: 'File Service', icon: <FileCog size={20} /> },
     { key: 'my-files', page: 'my-files', label: 'My Files', icon: <FolderClock size={20} /> },
     { key: 'downloads', page: 'downloads', label: 'Downloads', icon: <Download size={20} /> },
-    { key: 'packages', page: 'packages', label: 'Packages', icon: <Gauge size={20} /> },
     { key: 'support', page: 'support', label: 'Support', icon: <Headphones size={20} /> },
     { key: 'settings', page: 'settings', label: 'Settings', icon: <Settings size={20} /> },
   ];
@@ -2518,18 +2521,10 @@ function BuilderPage({
   const submitActionLabel = hasRequestSelection ? 'Request file' : selectedCombinationCandidate ? 'Validate & build' : 'Build file';
   const submitActionIcon = hasRequestSelection ? <FolderPlus size={17} /> : <FileCog size={17} />;
   const scanned = Boolean(matchResult);
-  const sortedAddonOptions = ADDON_OPTIONS
-    .map((option, index) => ({ option, index, status: addonOptionStatus(option.key) }))
-    .sort((left, right) => {
-      const priority: Record<SelectionStatus, number> = { found: 2, candidate: 1, request: 0 };
-      return priority[right.status] - priority[left.status] || left.index - right.index;
-    })
-    .map((entry) => entry.option);
-  const foundAddonCount = sortedAddonOptions.filter((option) => addonOptionStatus(option.key) === 'found').length;
-  const addonPageSize = Math.max(12, Math.min(ADDON_OPTIONS.length, foundAddonCount || 0));
-  const addonPageCount = Math.max(1, Math.ceil(sortedAddonOptions.length / addonPageSize));
+  const addonPageSize = 12;
+  const addonPageCount = Math.max(1, Math.ceil(ADDON_OPTIONS.length / addonPageSize));
   const activeAddonPage = Math.min(addonPage, addonPageCount - 1);
-  const visibleAddonOptions = sortedAddonOptions.slice(activeAddonPage * addonPageSize, activeAddonPage * addonPageSize + addonPageSize);
+  const visibleAddonOptions = ADDON_OPTIONS.slice(activeAddonPage * addonPageSize, activeAddonPage * addonPageSize + addonPageSize);
   const canBuild = Boolean(file && scanned && (baseTune || addons.length) && !loading && !matchLoading);
   const canOpenDelivery = Boolean(currentJob && deliveryReady && file && currentJob.source_filename === file.name);
   const matched = scanned;
@@ -2894,7 +2889,7 @@ function BuilderPage({
                       <button
                         key={option.key}
                         type="button"
-                        className={clsx('stage-option', baseTune === option.key && 'selected', found ? 'available' : 'requestable')}
+                        className={clsx('stage-option', baseTune === option.key && 'selected', found ? 'available' : candidate ? 'candidate' : 'requestable')}
                         onClick={() => setBaseTune((current) => (current === option.key ? '' : option.key))}
                       >
                         <span className="stage-radio" />
@@ -2946,7 +2941,7 @@ function BuilderPage({
                         <button
                           key={option.key}
                           type="button"
-                          className={clsx('addon-tile', selected && 'selected', found ? 'available' : 'requestable')}
+                          className={clsx('addon-tile', selected && 'selected', found ? 'available' : candidate ? 'candidate' : 'requestable')}
                           onClick={() => toggleAddon(option.key)}
                         >
                           <span className="addon-icon">{option.icon}</span>
@@ -3708,7 +3703,12 @@ function MyFilesPage({
           {projectRows.map(({ project, latestBuild, status, history, addonLabels }) => (
             <button className="project-row-card" key={project.id} type="button" onClick={() => setSelectedProjectId(project.id)}>
               <div className="project-row-main">
-                <div className="project-file-icon">
+                <div
+                  className="project-file-icon"
+                  role={status.key === 'failed' ? 'img' : undefined}
+                  aria-label={status.key === 'failed' ? 'Needs attention' : undefined}
+                  title={status.key === 'failed' ? 'Needs attention' : undefined}
+                >
                   {status.key === 'ready' ? <CheckCircle2 size={18} /> : status.key === 'failed' ? <CircleAlert size={18} /> : <FolderClock size={18} />}
                 </div>
                 <div>
@@ -3737,7 +3737,7 @@ function MyFilesPage({
               </div>
 
               <div className="project-row-open">
-                {status.key === 'ready' ? null : <StatusBadge status={status.status} />}
+                {status.key === 'ready' || status.key === 'failed' ? null : <StatusBadge status={status.status} />}
                 <ChevronRight size={17} />
               </div>
             </button>
